@@ -1,7 +1,9 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  // In dev: VITE_API_URL is empty → Vite proxy handles /api → localhost:3001
+  // In prod: VITE_API_URL = https://your-backend.railway.app
+  baseURL: (import.meta.env.VITE_API_URL || '') + '/api',
   timeout: 120000,
 });
 

@@ -1,0 +1,8 @@
+# Railway / Nixpacks build config
+# Installs FFmpeg system package for audio processing
+
+[phases.setup]
+nixPkgs = ["ffmpeg"]
+
+[start]
+cmd = "node src/index.js"
