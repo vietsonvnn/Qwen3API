@@ -59,8 +59,13 @@ export function AuthProvider({ children }) {
     if (token) await fetchProfile(token);
   }, [fetchProfile]);
 
+  const changePassword = async (newPassword) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) throw error;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

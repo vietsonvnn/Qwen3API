@@ -173,3 +173,47 @@ export async function logUsage(userId, data) {
     .from('usage_history')
     .insert({ user_id: userId, ...data });
 }
+
+// =====================================================
+// USER PROFILE MANAGEMENT
+// =====================================================
+
+export async function updateUserProfile(userId, { display_name }) {
+  const { data, error } = await supabaseAdmin
+    .from('user_profiles')
+    .update({ display_name, updated_at: new Date().toISOString() })
+    .eq('id', userId)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// =====================================================
+// ADMIN
+// =====================================================
+
+export async function getAllUsers() {
+  const { data, error } = await supabaseAdmin
+    .from('user_profiles')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function adminUpdateUser(userId, updates) {
+  const allowed = {};
+  ['role', 'status', 'max_voices', 'display_name'].forEach(k => {
+    if (updates[k] !== undefined) allowed[k] = updates[k];
+  });
+  allowed.updated_at = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from('user_profiles')
+    .update(allowed)
+    .eq('id', userId)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}

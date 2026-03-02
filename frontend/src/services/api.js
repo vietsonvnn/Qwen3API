@@ -98,6 +98,16 @@ export const voiceApi = {
 
 export const userApi = {
   getMe: () => api.get('/user/me'),
+  updateMe: (data) => api.patch('/user/me', data),
+};
+
+// =====================================================
+// ADMIN
+// =====================================================
+
+export const adminApi = {
+  getUsers: () => api.get('/admin/users'),
+  updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
 };
 
 export default api;

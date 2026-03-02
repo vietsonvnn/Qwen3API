@@ -5,6 +5,8 @@ import DashboardPage from './pages/DashboardPage';
 import TtsPage from './pages/TtsPage';
 import VoiceClonePage from './pages/VoiceClonePage';
 import HistoryPage from './pages/HistoryPage';
+import AccountPage from './pages/AccountPage';
+import AdminPage from './pages/AdminPage';
 import Layout from './components/Layout';
 
 function ProtectedRoute({ children }) {
@@ -34,6 +36,8 @@ export default function App() {
             <Route path="tts" element={<TtsPage />} />
             <Route path="voice-clone" element={<VoiceClonePage />} />
             <Route path="history" element={<HistoryPage />} />
+            <Route path="account" element={<AccountPage />} />
+            <Route path="admin" element={<AdminPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

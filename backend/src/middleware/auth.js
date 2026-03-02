@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import config from '../config/index.js';
+import { getUserById } from '../services/database.js';
 
 const supabase = createClient(config.supabase.url, config.supabase.anonKey);
 
@@ -21,5 +22,21 @@ export async function authMiddleware(c, next) {
 
   c.set('userId', user.id);
   c.set('userEmail', user.email);
+  await next();
+}
+
+/**
+ * Hono middleware: ensure authenticated user has role='admin'
+ * Must run after authMiddleware
+ */
+export async function adminMiddleware(c, next) {
+  try {
+    const profile = await getUserById(c.get('userId'));
+    if (!profile || profile.role !== 'admin') {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+  } catch {
+    return c.json({ error: 'Forbidden' }, 403);
+  }
   await next();
 }

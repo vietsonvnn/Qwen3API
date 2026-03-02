@@ -6,6 +6,7 @@ import config from './config/index.js';
 import ttsRoutes from './routes/tts.js';
 import voiceRoutes from './routes/voice.js';
 import userRoutes from './routes/user.js';
+import adminRoutes from './routes/admin.js';
 
 const app = new Hono();
 
@@ -21,6 +22,7 @@ app.use('*', cors({
 app.route('/api/tts', ttsRoutes);
 app.route('/api/voices', voiceRoutes);
 app.route('/api/user', userRoutes);
+app.route('/api/admin', adminRoutes);
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }));
