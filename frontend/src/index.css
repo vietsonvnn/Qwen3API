@@ -5,36 +5,55 @@
 @layer base {
   body {
     @apply bg-dark-900 text-gray-100 antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
   * {
     scrollbar-width: thin;
     scrollbar-color: #2e374d #161b27;
   }
-  *::-webkit-scrollbar { width: 6px; height: 6px; }
-  *::-webkit-scrollbar-track { background: #161b27; }
-  *::-webkit-scrollbar-thumb { background: #2e374d; border-radius: 3px; }
+  *::-webkit-scrollbar { width: 5px; height: 5px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: #2e374d; border-radius: 10px; }
+  *::-webkit-scrollbar-thumb:hover { background: #3d4d66; }
 }
 
 @layer components {
   .card {
-    @apply bg-dark-800 border border-dark-600 rounded-xl p-4;
+    @apply bg-dark-800 border border-dark-600 rounded-2xl p-4;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+
+  .card-sm {
+    @apply bg-dark-800 border border-dark-600 rounded-xl p-3;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.2);
   }
 
   .btn {
-    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
   .btn-primary {
-    @apply btn bg-primary-500 hover:bg-primary-600 text-white;
+    @apply btn text-white;
+    background: linear-gradient(135deg, #4f73f8 0%, #6b8ff5 100%);
+    box-shadow: 0 0 24px rgba(79, 115, 248, 0.3), 0 4px 12px rgba(0,0,0,0.2);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #3a58e8 0%, #4f73f8 100%);
+    box-shadow: 0 0 32px rgba(79, 115, 248, 0.45), 0 4px 16px rgba(0,0,0,0.25);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(0);
+    box-shadow: 0 0 16px rgba(79, 115, 248, 0.25);
   }
 
   .btn-secondary {
-    @apply btn bg-dark-600 hover:bg-dark-500 text-gray-200 border border-dark-500;
+    @apply btn bg-dark-700 hover:bg-dark-600 text-gray-200 border border-dark-500;
   }
 
   .btn-ghost {
-    @apply btn hover:bg-dark-700 text-gray-300;
+    @apply btn hover:bg-dark-700 text-gray-400 hover:text-gray-100;
   }
 
   .btn-danger {
@@ -42,8 +61,12 @@
   }
 
   .input {
-    @apply w-full bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500
-           focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-colors;
+    @apply w-full bg-dark-700 border border-dark-600 rounded-xl px-3 py-2.5 text-gray-100 placeholder-gray-600
+           focus:outline-none focus:border-primary-500 transition-all duration-150;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.2);
+  }
+  .input:focus {
+    box-shadow: 0 0 0 3px rgba(79, 115, 248, 0.12), inset 0 1px 2px rgba(0,0,0,0.2);
   }
 
   .select {
@@ -51,16 +74,47 @@
   }
 
   .label {
-    @apply block text-sm font-medium text-gray-300 mb-1;
+    @apply block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5;
   }
 
   .badge {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
   }
 
-  .badge-success { @apply badge bg-green-500/15 text-green-400; }
-  .badge-warning { @apply badge bg-yellow-500/15 text-yellow-400; }
-  .badge-error   { @apply badge bg-red-500/15 text-red-400; }
-  .badge-info    { @apply badge bg-blue-500/15 text-blue-400; }
-  .badge-neutral { @apply badge bg-gray-500/15 text-gray-400; }
+  .badge-success { @apply badge bg-green-500/15 text-green-400 border border-green-500/20; }
+  .badge-warning { @apply badge bg-yellow-500/15 text-yellow-400 border border-yellow-500/20; }
+  .badge-error   { @apply badge bg-red-500/15 text-red-400 border border-red-500/20; }
+  .badge-info    { @apply badge bg-blue-500/15 text-blue-400 border border-blue-500/20; }
+  .badge-neutral { @apply badge bg-gray-500/15 text-gray-400 border border-gray-500/20; }
+
+  /* Voice card in strip */
+  .voice-card {
+    @apply flex-shrink-0 flex flex-col items-center gap-2 px-4 py-3 rounded-2xl border cursor-pointer transition-all duration-150 select-none;
+    min-width: 100px;
+    background: #161b27;
+    border-color: #252d40;
+  }
+  .voice-card:hover {
+    background: #1e2535;
+    border-color: #3d4d66;
+  }
+  .voice-card.active {
+    background: rgba(79, 115, 248, 0.1);
+    border-color: rgba(79, 115, 248, 0.5);
+    box-shadow: 0 0 16px rgba(79, 115, 248, 0.15);
+  }
+
+  /* Skeleton loader */
+  .skeleton {
+    @apply rounded-xl bg-dark-700 animate-pulse;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
 }
