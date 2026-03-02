@@ -9,11 +9,12 @@ import userRoutes from './routes/user.js';
 
 const app = new Hono();
 
-// CORS
+// CORS — auth is JWT bearer token (no cookies), wildcard is safe
 app.use('*', cors({
-  origin: config.corsOrigin,
+  origin: '*',
   allowHeaders: ['Content-Type', 'Authorization'],
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  maxAge: 86400,
 }));
 
 // Routes
