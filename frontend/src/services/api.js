@@ -44,8 +44,26 @@ export const ttsApi = {
     `/api/tts/download/${jobId}`,
 
   downloadSrtUrl: (jobId) =>
-    `/api/tts/jobs/${jobId}/srt`,
+    `${import.meta.env.VITE_API_URL || ''}/api/tts/jobs/${jobId}/srt`,
 };
+
+// Authenticated SRT download (browser <a download> doesn't send auth headers)
+export async function downloadSrtFile(jobId, title) {
+  const token = localStorage.getItem('access_token');
+  const url = `${import.meta.env.VITE_API_URL || ''}/api/tts/jobs/${jobId}/srt`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error('Không thể tải file SRT');
+  const text = await res.text();
+  const blob = new Blob([text], { type: 'text/plain; charset=utf-8' });
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `${(title || 'subtitles').replace(/[^\w\-]/g, '_')}.srt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
 
 // =====================================================
 // VOICES
