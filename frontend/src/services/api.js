@@ -108,6 +108,8 @@ export const userApi = {
 export const adminApi = {
   getUsers: () => api.get('/admin/users'),
   updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
+  deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  getAllJobs: (params = {}) => api.get('/admin/jobs', { params }),
 };
 
 export default api;

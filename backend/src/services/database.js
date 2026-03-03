@@ -202,6 +202,25 @@ export async function getAllUsers() {
   return data || [];
 }
 
+export async function adminGetAllJobs({ limit = 50, offset = 0, userId = null } = {}) {
+  let query = supabaseAdmin
+    .from('tts_jobs')
+    .select('*, user_profiles(email, display_name)', { count: 'exact' })
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (userId) query = query.eq('user_id', userId);
+
+  const { data, error, count } = await query;
+  if (error) throw new Error(error.message);
+  return { jobs: data || [], total: count };
+}
+
+export async function adminDeleteUser(userId) {
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (error) throw new Error(error.message);
+}
+
 export async function adminUpdateUser(userId, updates) {
   const allowed = {};
   ['role', 'status', 'max_voices', 'display_name'].forEach(k => {
