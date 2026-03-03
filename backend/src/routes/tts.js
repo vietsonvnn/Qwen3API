@@ -17,6 +17,7 @@ import {
   MODELS,
   SUPPORTED_LANGUAGES,
   splitTextIntoBatches,
+  previewSystemVoice,
 } from '../services/qwenService.js';
 import { mergeAudioBuffers, getAudioDuration } from '../services/audioMerger.js';
 import { uploadBuffer } from '../services/storage.js';
@@ -31,6 +32,15 @@ router.get('/languages', (c) => c.json({ data: SUPPORTED_LANGUAGES }));
 
 // Apply auth to all routes below
 router.use('*', authMiddleware);
+
+// POST /api/tts/system-preview — on-demand preview for a system voice (cached per process)
+router.post('/system-preview', async (c) => {
+  const { voiceId } = await c.req.json();
+  const valid = SYSTEM_VOICES.find(v => v.id === voiceId);
+  if (!valid) return c.json({ error: 'Invalid voice ID' }, 400);
+  const audio = await previewSystemVoice(voiceId);
+  return c.json({ data: { audio } });
+});
 
 // POST /api/tts/estimate — estimate character count
 router.post('/estimate', async (c) => {

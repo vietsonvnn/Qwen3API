@@ -20,8 +20,10 @@ export default function TtsPage() {
   const [voiceFilter, setVoiceFilter] = useState('all'); // 'all' | 'female' | 'male'
   const [activeJob, setActiveJob] = useState(null);
   const [playingJobId, setPlayingJobId] = useState(null);
+  const [previewingId, setPreviewingId] = useState(null);
   const [estimate, setEstimate] = useState(null);
   const audioRef = useRef(null);
+  const previewAudioRef = useRef(null);
   const pollRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -94,6 +96,27 @@ export default function TtsPage() {
   };
 
   useEffect(() => () => clearInterval(pollRef.current), []);
+
+  const handleVoicePreview = async (e, voiceId) => {
+    e.stopPropagation();
+    if (previewingId === voiceId) {
+      previewAudioRef.current?.pause();
+      setPreviewingId(null);
+      return;
+    }
+    setPreviewingId(voiceId);
+    try {
+      const { data } = await ttsApi.systemPreview(voiceId);
+      const audio = new Audio(data.data.audio);
+      previewAudioRef.current?.pause();
+      previewAudioRef.current = audio;
+      audio.play();
+      audio.onended = () => setPreviewingId(null);
+    } catch {
+      toast.error('Không thể preview giọng này');
+      setPreviewingId(null);
+    }
+  };
 
   const handleGenerate = () => {
     if (!text.trim()) return toast.error('Nhập văn bản trước');
@@ -236,6 +259,8 @@ export default function TtsPage() {
                   voice={v}
                   selected={selectedVoice?.id === v.id}
                   onClick={() => setSelectedVoice(v)}
+                  onPreview={(e) => handleVoicePreview(e, v.id)}
+                  isPreviewing={previewingId === v.id}
                 />
               ))
           }
@@ -438,7 +463,7 @@ export default function TtsPage() {
 
 /* ── Sub-components ── */
 
-function VoiceCard({ voice, selected, onClick }) {
+function VoiceCard({ voice, selected, onClick, onPreview, isPreviewing }) {
   const colorMap = {
     female: { bg: 'rgba(236,72,153,0.15)', text: '#f9a8d4' },
     male:   { bg: 'rgba(59,130,246,0.15)', text: '#93c5fd' },
@@ -447,28 +472,42 @@ function VoiceCard({ voice, selected, onClick }) {
   const c = colorMap[voice.gender] || colorMap.male;
 
   return (
-    <button
-      onClick={onClick}
-      title={voice.sub}
-      className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all w-[72px] flex-shrink-0 ${
-        selected
-          ? 'border-primary-500 bg-primary-500/10'
-          : 'border-dark-600 bg-dark-700 hover:border-dark-500'
-      }`}
-    >
-      <div
-        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
-        style={{ background: c.bg, color: c.text }}
+    <div className="relative group w-[72px] flex-shrink-0">
+      <button
+        onClick={onClick}
+        title={voice.sub}
+        className={`w-full flex flex-col items-center gap-1 p-2 rounded-xl border transition-all ${
+          selected
+            ? 'border-primary-500 bg-primary-500/10'
+            : 'border-dark-600 bg-dark-700 hover:border-dark-500'
+        }`}
       >
-        {voice.name[0]}
-      </div>
-      <span className="text-[10px] font-medium text-gray-300 text-center leading-tight truncate w-full">
-        {voice.name}
-      </span>
-      {voice.type === 'cloned' && (
-        <span className="text-[9px] text-primary-400 font-medium leading-none">clone</span>
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
+          style={{ background: c.bg, color: c.text }}
+        >
+          {voice.name[0]}
+        </div>
+        <span className="text-[10px] font-medium text-gray-300 text-center leading-tight truncate w-full">
+          {voice.name}
+        </span>
+        {voice.type === 'cloned'
+          ? <span className="text-[9px] text-primary-400 font-medium leading-none">clone</span>
+          : <span className="text-[9px] text-gray-600 leading-none truncate w-full text-center">{voice.sub}</span>
+        }
+      </button>
+      {voice.type === 'system' && (
+        <button
+          onClick={onPreview}
+          title={isPreviewing ? 'Dừng' : 'Nghe thử'}
+          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/70 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+        >
+          {isPreviewing
+            ? <Pause className="w-2.5 h-2.5 text-white" />
+            : <Play className="w-2.5 h-2.5 text-white" />}
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 

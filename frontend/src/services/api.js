@@ -40,6 +40,9 @@ export const ttsApi = {
   getLanguages: () =>
     api.get('/tts/languages'),
 
+  systemPreview: (voiceId) =>
+    api.post('/tts/system-preview', { voiceId }),
+
   downloadUrl: (jobId) =>
     `/api/tts/download/${jobId}`,
 

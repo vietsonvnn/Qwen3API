@@ -333,6 +333,27 @@ export async function previewVoice(voiceId, previewText = 'Hello, this is a voic
   return synthesizeSingle(previewText, voiceId, { model: VOICE_CLONE_TTS_MODEL });
 }
 
+// In-memory cache for system voice previews: voiceId → base64 WAV (lives for process lifetime)
+const _systemPreviewCache = new Map();
+
+/**
+ * Generate a preview for a system voice.
+ * Returns base64-encoded WAV (cached after first call per voiceId).
+ */
+export async function previewSystemVoice(voiceId) {
+  if (_systemPreviewCache.has(voiceId)) {
+    return _systemPreviewCache.get(voiceId);
+  }
+  const result = await synthesizeSingle(
+    'Hello, this is a sample of my voice.',
+    voiceId,
+    { model: 'qwen3-tts-flash', language: 'English' }
+  );
+  const dataUri = `data:audio/wav;base64,${result.buffer.toString('base64')}`;
+  _systemPreviewCache.set(voiceId, dataUri);
+  return dataUri;
+}
+
 // =====================================================
 // HELPERS
 // =====================================================
