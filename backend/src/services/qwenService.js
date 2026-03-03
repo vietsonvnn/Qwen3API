@@ -84,6 +84,29 @@ const VOICE_CLONE_TTS_MODEL = 'qwen3-tts-vc-2026-01-22';
  * Convert a single text chunk (≤500 chars) to audio
  * Returns a Buffer of WAV audio
  */
+/**
+ * Retry wrapper for rate-limited API calls.
+ * Retries up to maxRetries times on 429 or "rate limit" errors with exponential backoff.
+ */
+async function withRetry(fn, maxRetries = 4, baseDelayMs = 2000) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isRateLimit =
+        err.response?.status === 429 ||
+        err.message?.toLowerCase().includes('rate limit') ||
+        err.message?.toLowerCase().includes('throttl');
+
+      if (!isRateLimit || attempt === maxRetries) throw err;
+
+      const delay = baseDelayMs * Math.pow(2, attempt); // 2s, 4s, 8s, 16s
+      console.warn(`Rate limit hit, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+}
+
 export async function synthesizeSingle(text, voiceId, options = {}) {
   const { model = 'qwen3-tts-flash', language = 'auto' } = options;
 
@@ -99,16 +122,18 @@ export async function synthesizeSingle(text, voiceId, options = {}) {
 
   let response;
   try {
-    response = await axios.post(
-      `${BASE_URL}${config.qwen.ttsEndpoint}`,
-      { model, input },
-      {
-        headers: {
-          Authorization: `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 60000,
-      }
+    response = await withRetry(() =>
+      axios.post(
+        `${BASE_URL}${config.qwen.ttsEndpoint}`,
+        { model, input },
+        {
+          headers: {
+            Authorization: `Bearer ${API_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 60000,
+        }
+      )
     );
   } catch (err) {
     const apiMsg = err.response?.data?.message || err.response?.data?.error || err.response?.data?.msg || err.message;
@@ -195,10 +220,10 @@ export function splitTextIntoBatches(text, maxBytes = MAX_BYTES) {
 export async function textToSpeech(text, voiceId, options = {}) {
   const batches = splitTextIntoBatches(text.trim());
 
-  // Run batches in parallel (max 5 concurrent) for lower latency
+  // Run batches in parallel — max 2 concurrent to stay under DashScope rate limit (2 QPS free / 5 QPS paid)
   const batchResults = await parallelLimit(
     batches.map(batch => () => synthesizeSingle(batch, voiceId, options)),
-    5
+    2
   );
 
   // Build ordered results + cumulative timestamps for SRT
