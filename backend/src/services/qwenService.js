@@ -344,10 +344,15 @@ export async function previewSystemVoice(voiceId) {
   if (_systemPreviewCache.has(voiceId)) {
     return _systemPreviewCache.get(voiceId);
   }
+  const voice = SYSTEM_VOICES.find(v => v.id === voiceId);
+  const isDialect = !!voice?.dialect;
+  const previewText = isDialect ? '你好，这是我的声音示例。' : 'Hello, this is a sample of my voice.';
+  const previewLang = isDialect ? 'Chinese' : 'English';
+
   const result = await synthesizeSingle(
-    'Hello, this is a sample of my voice.',
+    previewText,
     voiceId,
-    { model: 'qwen3-tts-flash', language: 'English' }
+    { model: 'qwen3-tts-flash', language: previewLang }
   );
   const dataUri = `data:audio/wav;base64,${result.buffer.toString('base64')}`;
   _systemPreviewCache.set(voiceId, dataUri);

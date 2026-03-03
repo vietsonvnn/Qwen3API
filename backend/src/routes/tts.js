@@ -38,8 +38,13 @@ router.post('/system-preview', async (c) => {
   const { voiceId } = await c.req.json();
   const valid = SYSTEM_VOICES.find(v => v.id === voiceId);
   if (!valid) return c.json({ error: 'Invalid voice ID' }, 400);
-  const audio = await previewSystemVoice(voiceId);
-  return c.json({ data: { audio } });
+  try {
+    const audio = await previewSystemVoice(voiceId);
+    return c.json({ data: { audio } });
+  } catch (err) {
+    console.error('system-preview error:', err.message);
+    return c.json({ error: err.message || 'Preview failed' }, 500);
+  }
 });
 
 // POST /api/tts/estimate — estimate character count
