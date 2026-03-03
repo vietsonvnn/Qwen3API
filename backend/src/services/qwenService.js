@@ -50,12 +50,12 @@ export const SYSTEM_VOICES = [
   { id: 'Dylan', name: 'Dylan', gender: 'male', description: 'Beijing dialect', dialect: 'beijing' },
 ];
 
-// Supported languages for language_type param
+// Supported language_type values — matches Alibaba Cloud DashScope docs exactly.
+// Vietnamese is NOT a valid language_type; use 'auto' instead (API auto-detects VI).
 export const SUPPORTED_LANGUAGES = [
-  { id: 'auto', name: 'Tự động phát hiện' },
+  { id: 'auto', name: 'Tự động (Vietnamese, ...)' },
   { id: 'Chinese', name: 'Tiếng Trung' },
   { id: 'English', name: 'Tiếng Anh' },
-  { id: 'Vietnamese', name: 'Tiếng Việt' },
   { id: 'Japanese', name: 'Tiếng Nhật' },
   { id: 'Korean', name: 'Tiếng Hàn' },
   { id: 'French', name: 'Tiếng Pháp' },

@@ -216,6 +216,37 @@ export async function adminGetAllJobs({ limit = 50, offset = 0, userId = null } 
   return { jobs: data || [], total: count };
 }
 
+export async function adminGetStats() {
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [
+    { count: totalUsers },
+    { count: activeUsers7d },
+    { count: totalJobs },
+    { count: completedJobs },
+    { count: failedJobs },
+    { data: charData },
+  ] = await Promise.all([
+    supabaseAdmin.from('user_profiles').select('*', { count: 'exact', head: true }),
+    supabaseAdmin.from('user_profiles').select('*', { count: 'exact', head: true }).gte('last_login_at', sevenDaysAgo),
+    supabaseAdmin.from('tts_jobs').select('*', { count: 'exact', head: true }),
+    supabaseAdmin.from('tts_jobs').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
+    supabaseAdmin.from('tts_jobs').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
+    supabaseAdmin.from('user_profiles').select('total_characters_used'),
+  ]);
+
+  const totalCharactersUsed = (charData || []).reduce((s, u) => s + (u.total_characters_used || 0), 0);
+
+  return {
+    totalUsers: totalUsers || 0,
+    activeUsers7d: activeUsers7d || 0,
+    totalJobs: totalJobs || 0,
+    completedJobs: completedJobs || 0,
+    failedJobs: failedJobs || 0,
+    totalCharactersUsed,
+  };
+}
+
 export async function adminDeleteUser(userId) {
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
   if (error) throw new Error(error.message);

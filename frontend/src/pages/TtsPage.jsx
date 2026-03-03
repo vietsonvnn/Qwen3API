@@ -2,10 +2,11 @@ import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ttsApi, voiceApi, downloadSrtFile } from '../services/api';
 import toast from 'react-hot-toast';
+import mammoth from 'mammoth';
 import {
   AudioLines, Play, Pause, Download, Loader,
   Globe, Wand2, Subtitles, Layers, Clock,
-  ChevronLeft, ChevronRight, FileText,
+  FileText, Upload,
 } from 'lucide-react';
 
 const POLL_INTERVAL = 2000;
@@ -16,12 +17,13 @@ export default function TtsPage() {
   const [selectedVoice, setSelectedVoice] = useState(null);
   const [language, setLanguage] = useState('auto');
   const [jobTitle, setJobTitle] = useState('');
+  const [voiceFilter, setVoiceFilter] = useState('all'); // 'all' | 'female' | 'male'
   const [activeJob, setActiveJob] = useState(null);
   const [playingJobId, setPlayingJobId] = useState(null);
   const [estimate, setEstimate] = useState(null);
   const audioRef = useRef(null);
   const pollRef = useRef(null);
-  const stripRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   const { data: systemVoicesData } = useQuery({
     queryKey: ['systemVoices'],
@@ -126,21 +128,62 @@ export default function TtsPage() {
     }
   };
 
-  const scrollStrip = (dir) => {
-    stripRef.current?.scrollBy({ left: dir * 260, behavior: 'smooth' });
+  // File upload: .txt or .docx → fill textarea
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    const baseName = file.name.replace(/\.[^.]+$/, '');
+
+    try {
+      let extracted = '';
+
+      if (ext === 'txt') {
+        extracted = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target.result);
+          reader.onerror = reject;
+          reader.readAsText(file, 'UTF-8');
+        });
+      } else if (ext === 'docx') {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawValue({ arrayBuffer });
+        extracted = result.value;
+      } else {
+        return toast.error('Chỉ hỗ trợ file .txt và .docx');
+      }
+
+      const trimmed = extracted.trim();
+      if (!trimmed) return toast.error('File trống hoặc không đọc được nội dung');
+
+      setText(trimmed);
+      if (!jobTitle) setJobTitle(baseName);
+      toast.success(`Đã tải: ${file.name} (${trimmed.length.toLocaleString()} ký tự)`);
+    } catch {
+      toast.error('Không thể đọc file, thử lại');
+    }
   };
 
-  // Build flat voice list: cloned first, then system
-  const allVoices = [
-    ...(clonedVoicesData || []).map(v => ({
-      id: v.qwen_voice_id, name: v.name, type: 'cloned',
-      sub: `${v.times_used || 0} lần`, color: 'primary',
-    })),
-    ...(systemVoicesData || []).map(v => ({
-      id: v.id, name: v.name, type: 'system',
-      sub: v.description, color: v.gender === 'female' ? 'pink' : 'blue',
-    })),
-  ];
+  // Build voice list with gender metadata
+  const clonedVoices = (clonedVoicesData || []).map(v => ({
+    id: v.qwen_voice_id, name: v.name, type: 'cloned',
+    sub: `${v.times_used || 0} lần dùng`, gender: 'cloned',
+  }));
+
+  const systemVoices = (systemVoicesData || []).map(v => ({
+    id: v.id, name: v.name, type: 'system',
+    sub: v.description, gender: v.gender || 'male',
+  }));
+
+  const allVoices = [...clonedVoices, ...systemVoices];
+
+  const filteredVoices = voiceFilter === 'all'
+    ? allVoices
+    : voiceFilter === 'female'
+      ? allVoices.filter(v => v.gender === 'female')
+      : allVoices.filter(v => v.gender === 'male' || v.gender === 'cloned');
 
   const charCount = text.length;
   const isGenerating = generateMutation.isPending || activeJob?.status === 'processing';
@@ -150,29 +193,44 @@ export default function TtsPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden">
 
-      {/* ── Voice strip ── */}
+      {/* ── Voice picker ── */}
       <div className="flex-shrink-0 bg-dark-800 border-b border-dark-600">
-        <div className="flex items-center px-4 pt-3 pb-1 gap-2">
+        {/* Header with filter tabs */}
+        <div className="flex items-center gap-3 px-4 pt-3 pb-2">
           <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex-1">
             Chọn giọng đọc
-            {allVoices.length > 0 && (
-              <span className="ml-1.5 text-gray-700 font-normal normal-case">· {allVoices.length} giọng</span>
+            {selectedVoice && (
+              <span className="ml-2 text-primary-400 font-normal normal-case">· {selectedVoice.name}</span>
             )}
           </span>
-          <button onClick={() => scrollStrip(-1)} className="p-1 rounded-lg text-gray-600 hover:text-gray-400 transition-colors">
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <button onClick={() => scrollStrip(1)} className="p-1 rounded-lg text-gray-600 hover:text-gray-400 transition-colors">
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex gap-1">
+            {[
+              { key: 'all', label: 'All' },
+              { key: 'female', label: '♀ Female' },
+              { key: 'male', label: '♂ Male' },
+            ].map(f => (
+              <button
+                key={f.key}
+                onClick={() => setVoiceFilter(f.key)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  voiceFilter === f.key
+                    ? 'bg-primary-500/20 text-primary-400 border border-primary-500/30'
+                    : 'text-gray-600 hover:text-gray-400'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div ref={stripRef} className="flex gap-2 overflow-x-auto px-4 pb-3 scrollbar-hide">
+        {/* Voice grid — wraps, max 144px height with scroll */}
+        <div className="flex flex-wrap gap-1.5 px-4 pb-3 max-h-36 overflow-y-auto scrollbar-hide">
           {allVoices.length === 0
-            ? Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="skeleton flex-shrink-0 w-[90px] h-[80px]" />
+            ? Array.from({ length: 12 }).map((_, i) => (
+                <div key={i} className="skeleton w-[72px] h-[72px] rounded-xl" />
               ))
-            : allVoices.map(v => (
+            : filteredVoices.map(v => (
                 <VoiceCard
                   key={v.id}
                   voice={v}
@@ -187,22 +245,51 @@ export default function TtsPage() {
       {/* ── Main 2-col ── */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* Left: text + settings + generate */}
-        <div className="flex-1 flex flex-col p-5 gap-3 min-w-0 overflow-hidden">
+        {/* Left: upload + textarea + settings + generate */}
+        <div className="flex-1 flex flex-col p-4 gap-2.5 min-w-0 overflow-hidden">
 
-          {/* Textarea */}
+          {/* Top row: file upload + job title */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="btn-secondary gap-1.5 text-xs px-3 py-1.5 flex-shrink-0"
+              title="Upload .txt hoặc .docx"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Upload file
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.docx"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <div className="flex items-center gap-1.5 bg-dark-700 border border-dark-600 rounded-lg px-2.5 py-1.5 flex-1">
+              <FileText className="w-3 h-3 text-gray-500 flex-shrink-0" />
+              <input
+                type="text"
+                value={jobTitle}
+                onChange={e => setJobTitle(e.target.value)}
+                className="bg-transparent text-xs text-gray-300 placeholder-gray-600 focus:outline-none w-full"
+                placeholder="Tiêu đề (tuỳ chọn)"
+              />
+            </div>
+          </div>
+
+          {/* Textarea — fixed height 192px */}
           <textarea
             value={text}
             onChange={e => setText(e.target.value)}
-            className="input flex-1 resize-none text-sm leading-relaxed min-h-0"
-            placeholder={'Nhập văn bản cần chuyển thành giọng nói...\n\nHỗ trợ đa ngôn ngữ: Tiếng Việt, Anh, Trung, Nhật, Hàn, Pháp, Đức và nhiều ngôn ngữ khác.'}
+            className="input resize-none text-sm leading-relaxed h-48 flex-shrink-0"
+            placeholder={'Nhập văn bản hoặc upload file .txt / .docx...\n\nTiếng Việt: chọn ngôn ngữ "Tự động"'}
             maxLength={50000}
           />
 
-          {/* Settings row */}
+          {/* Settings + generate row */}
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
             {/* Language */}
-            <div className="flex items-center gap-1.5 bg-dark-700 border border-dark-600 rounded-lg px-2 py-1.5 flex-shrink-0">
+            <div className="flex items-center gap-1.5 bg-dark-700 border border-dark-600 rounded-lg px-2 py-1.5">
               <Globe className="w-3.5 h-3.5 text-gray-500" />
               <select
                 value={language}
@@ -216,26 +303,13 @@ export default function TtsPage() {
             </div>
 
             {/* Model badge */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-dark-700 border border-dark-600 rounded-lg flex-shrink-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-dark-700 border border-dark-600 rounded-lg">
               <Wand2 className="w-3 h-3 text-gray-500" />
               <span className="text-xs text-gray-500 font-mono">{modelLabel}</span>
-              {isClonedVoice && <span className="text-xs font-medium text-primary-400">vc</span>}
-            </div>
-
-            {/* Job title */}
-            <div className="flex items-center gap-1.5 bg-dark-700 border border-dark-600 rounded-lg px-2.5 py-1.5 flex-1 min-w-32">
-              <FileText className="w-3 h-3 text-gray-500 flex-shrink-0" />
-              <input
-                type="text"
-                value={jobTitle}
-                onChange={e => setJobTitle(e.target.value)}
-                className="bg-transparent text-xs text-gray-300 placeholder-gray-600 focus:outline-none w-full"
-                placeholder="Tiêu đề (tuỳ chọn)"
-              />
             </div>
 
             {/* Char/batch count */}
-            <div className="flex-shrink-0 text-xs text-gray-600 flex items-center gap-1.5">
+            <div className="text-xs text-gray-600 flex items-center gap-1.5">
               {estimate ? (
                 <>
                   <Layers className="w-3 h-3 text-primary-500" />
@@ -249,26 +323,25 @@ export default function TtsPage() {
                 </span>
               )}
             </div>
-          </div>
 
-          {/* Generate button */}
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating || !text.trim() || !selectedVoice}
-            className="btn-primary justify-center py-3.5 text-sm flex-shrink-0"
-          >
-            {isGenerating
-              ? <><Loader className="w-4 h-4 animate-spin" /> Đang tạo audio...</>
-              : <><AudioLines className="w-4 h-4" />
-                  Tạo giọng nói{selectedVoice ? ` · ${selectedVoice.name}` : ''}</>
-            }
-          </button>
+            {/* Generate button — right-aligned */}
+            <button
+              onClick={handleGenerate}
+              disabled={isGenerating || !text.trim() || !selectedVoice}
+              className="btn-primary ml-auto px-5 py-2 text-sm gap-2"
+            >
+              {isGenerating
+                ? <><Loader className="w-4 h-4 animate-spin" /> Đang tạo...</>
+                : <><AudioLines className="w-4 h-4" /> Tạo giọng nói</>
+              }
+            </button>
+          </div>
         </div>
 
         {/* Right: output + recent */}
         <div className="w-80 flex-shrink-0 border-l border-dark-600 flex flex-col overflow-hidden">
 
-          {/* Active result panel */}
+          {/* Active result */}
           <div className="flex-shrink-0 border-b border-dark-600 p-4">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Kết quả</p>
             {activeJob ? (
@@ -367,24 +440,33 @@ export default function TtsPage() {
 
 function VoiceCard({ voice, selected, onClick }) {
   const colorMap = {
-    primary: { bg: 'rgba(79,115,248,0.2)', text: '#7c9ef8' },
-    blue:    { bg: 'rgba(59,130,246,0.18)', text: '#93c5fd' },
-    pink:    { bg: 'rgba(236,72,153,0.18)', text: '#f9a8d4' },
+    female: { bg: 'rgba(236,72,153,0.15)', text: '#f9a8d4' },
+    male:   { bg: 'rgba(59,130,246,0.15)', text: '#93c5fd' },
+    cloned: { bg: 'rgba(79,115,248,0.2)',  text: '#7c9ef8' },
   };
-  const c = colorMap[voice.color] || colorMap.blue;
+  const c = colorMap[voice.gender] || colorMap.male;
+
   return (
-    <button onClick={onClick} className={`voice-card ${selected ? 'active' : ''}`}>
+    <button
+      onClick={onClick}
+      title={voice.sub}
+      className={`flex flex-col items-center gap-1 p-2 rounded-xl border transition-all w-[72px] flex-shrink-0 ${
+        selected
+          ? 'border-primary-500 bg-primary-500/10'
+          : 'border-dark-600 bg-dark-700 hover:border-dark-500'
+      }`}
+    >
       <div
-        className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+        className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
         style={{ background: c.bg, color: c.text }}
       >
         {voice.name[0]}
       </div>
-      <span className="text-xs font-medium text-gray-300 text-center leading-tight" style={{ maxWidth: 80 }}>
+      <span className="text-[10px] font-medium text-gray-300 text-center leading-tight truncate w-full">
         {voice.name}
       </span>
       {voice.type === 'cloned' && (
-        <span className="badge badge-info" style={{ fontSize: '9px', padding: '1px 6px' }}>Clone</span>
+        <span className="text-[9px] text-primary-400 font-medium leading-none">clone</span>
       )}
     </button>
   );
@@ -392,7 +474,7 @@ function VoiceCard({ voice, selected, onClick }) {
 
 function RecentJobCard({ job, isPlaying, onPlay, onDownloadSrt }) {
   return (
-    <div className="card-sm hover:border-dark-500 transition-colors group">
+    <div className="card-sm hover:border-dark-500 transition-colors">
       <div className="flex items-center gap-1.5 mb-1.5">
         <StatusDot status={job.status} />
         <p className="text-xs font-medium text-gray-300 truncate flex-1">

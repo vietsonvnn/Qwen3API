@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { authMiddleware, adminMiddleware } from '../middleware/auth.js';
-import { getAllUsers, adminUpdateUser, adminGetAllJobs, adminDeleteUser } from '../services/database.js';
+import { getAllUsers, adminUpdateUser, adminGetAllJobs, adminDeleteUser, adminGetStats } from '../services/database.js';
 
 const router = new Hono();
 router.use('*', authMiddleware, adminMiddleware);
@@ -26,6 +26,12 @@ router.delete('/users/:id', async (c) => {
   if (id === requesterId) return c.json({ error: 'Không thể xóa chính mình' }, 400);
   await adminDeleteUser(id);
   return c.json({ success: true });
+});
+
+// GET /api/admin/stats
+router.get('/stats', async (c) => {
+  const stats = await adminGetStats();
+  return c.json({ success: true, data: stats });
 });
 
 // GET /api/admin/jobs

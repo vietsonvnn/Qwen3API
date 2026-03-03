@@ -8,6 +8,7 @@ import toast from 'react-hot-toast';
 import {
   ShieldCheck, Users, RefreshCw, Save, Loader,
   CheckCircle, XCircle, Clock, Trash2, List,
+  TrendingUp, AlertCircle, BarChart2, Type,
 } from 'lucide-react';
 
 const ROLE_OPTIONS = [
@@ -38,6 +39,12 @@ export default function AdminPage() {
     staleTime: 30 * 1000,
   });
 
+  const { data: stats, refetch: refetchStats } = useQuery({
+    queryKey: ['adminStats'],
+    queryFn: () => adminApi.getStats().then(r => r.data.data),
+    staleTime: 60 * 1000,
+  });
+
   const users = usersData || [];
 
   return (
@@ -54,10 +61,11 @@ export default function AdminPage() {
           </p>
         </div>
         <button
-          onClick={() => tab === 'users'
-            ? refetchUsers()
-            : queryClient.invalidateQueries({ queryKey: ['adminJobs'] })
-          }
+          onClick={() => {
+            refetchUsers();
+            refetchStats();
+            if (tab === 'jobs') queryClient.invalidateQueries({ queryKey: ['adminJobs'] });
+          }}
           className="btn-secondary gap-2 text-sm"
           disabled={usersLoading}
         >
@@ -65,6 +73,9 @@ export default function AdminPage() {
           Làm mới
         </button>
       </div>
+
+      {/* Stats bar */}
+      {stats && <StatsBar stats={stats} />}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 border-b border-dark-700">
@@ -115,6 +126,70 @@ export default function AdminPage() {
 
       {/* Tab: Jobs */}
       {tab === 'jobs' && <AllJobsTab />}
+    </div>
+  );
+}
+
+// =====================================================
+// STATS BAR
+// =====================================================
+
+function fmtChars(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+function StatsBar({ stats }) {
+  const successRate = stats.totalJobs > 0
+    ? Math.round((stats.completedJobs / stats.totalJobs) * 100)
+    : 0;
+
+  const items = [
+    {
+      icon: <Users className="w-4 h-4 text-primary-400" />,
+      label: 'Người dùng',
+      value: stats.totalUsers,
+      sub: `${stats.activeUsers7d} active 7 ngày`,
+    },
+    {
+      icon: <TrendingUp className="w-4 h-4 text-green-400" />,
+      label: 'Hoàn thành',
+      value: stats.completedJobs.toLocaleString(),
+      sub: `/ ${stats.totalJobs.toLocaleString()} jobs`,
+    },
+    {
+      icon: <AlertCircle className="w-4 h-4 text-red-400" />,
+      label: 'Jobs lỗi',
+      value: stats.failedJobs.toLocaleString(),
+      sub: stats.totalJobs > 0 ? `${100 - successRate}% tỷ lệ lỗi` : '—',
+    },
+    {
+      icon: <BarChart2 className="w-4 h-4 text-yellow-400" />,
+      label: 'Success rate',
+      value: `${successRate}%`,
+      sub: 'completed / total',
+    },
+    {
+      icon: <Type className="w-4 h-4 text-purple-400" />,
+      label: 'Ký tự đã dùng',
+      value: fmtChars(stats.totalCharactersUsed),
+      sub: `${stats.totalCharactersUsed.toLocaleString()} ký tự`,
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5">
+      {items.map((item, i) => (
+        <div key={i} className="card py-3 px-4">
+          <div className="flex items-center gap-2 mb-1">
+            {item.icon}
+            <span className="text-xs text-gray-500 uppercase tracking-wide">{item.label}</span>
+          </div>
+          <p className="text-xl font-bold text-white leading-none">{item.value}</p>
+          <p className="text-xs text-gray-600 mt-1 truncate">{item.sub}</p>
+        </div>
+      ))}
     </div>
   );
 }
