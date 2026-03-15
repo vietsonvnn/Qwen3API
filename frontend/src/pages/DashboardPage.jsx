@@ -13,12 +13,12 @@ export default function DashboardPage() {
   const { profile } = useAuth();
 
   const { data: jobsData } = useQuery({
-    queryKey: ['ttsJobs'],
+    queryKey: ['ttsJobs', 'dashboard'],
     queryFn: () => ttsApi.getJobs({ limit: 5 }).then(r => r.data),
   });
 
   const { data: voicesData } = useQuery({
-    queryKey: ['myVoices'],
+    queryKey: ['myVoices', 'dashboard'],
     queryFn: () => voiceApi.getMyVoices().then(r => r.data),
   });
 
