@@ -43,10 +43,10 @@ export function detectTextType(text) {
 // =====================================================
 
 const CHARS_PER_LINE = {
-  korean:   18,
-  japanese: 16,
-  cjk:     16,
-  latin:   30,
+  korean:   14,
+  japanese: 12,
+  cjk:     12,
+  latin:   22,
 };
 
 /**
@@ -70,7 +70,7 @@ const JP_PARTICLES    = new Set(['は', 'が', 'を', 'に', 'で', 'と', 'も'
  * Respects word boundaries for space-delimited languages and character /
  * clause boundaries for Japanese.
  */
-export function wrapText(text, maxChars, maxLines = 2) {
+export function wrapText(text, maxChars, maxLines = 1) {
   const trimmed = text.trim();
   if (trimmed.length <= maxChars) return trimmed;   // fits on one line
 
@@ -165,7 +165,7 @@ function findSpaceSplitPoint(text, target) {
  * Each output entry has at most maxLines lines of maxCharsPerLine characters.
  */
 export function splitSegmentIntoSubtitles(segment, options = {}) {
-  const { maxLines = 2 } = options;
+  const { maxLines = 1 } = options;
   const text = segment.text.trim();
   if (!text) return [];
 
