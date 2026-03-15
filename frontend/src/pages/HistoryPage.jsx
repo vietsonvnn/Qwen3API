@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ttsApi, downloadSrtFile } from '../services/api';
+import { ttsApi, downloadSrtFile, downloadMp3File } from '../services/api';
 import { formatDistanceToNow } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import toast from 'react-hot-toast';
@@ -54,6 +54,14 @@ export default function HistoryPage() {
     audioRef.current.play();
     audioRef.current.onended = () => setPlayingId(null);
     setPlayingId(job.id);
+  };
+
+  const handleDownloadMp3 = async (job) => {
+    try {
+      await downloadMp3File(job.output_url, job.job_title || job.voice_name);
+    } catch {
+      toast.error('Không thể tải file MP3');
+    }
   };
 
   const handleDownloadSrt = async (job) => {
@@ -129,6 +137,7 @@ export default function HistoryPage() {
                 job={job}
                 isPlaying={playingId === job.id}
                 onPlay={() => handlePlay(job)}
+                onDownloadMp3={() => handleDownloadMp3(job)}
                 onDownloadSrt={() => handleDownloadSrt(job)}
                 onDelete={() => { if (confirm('Xoá audio này?')) deleteMutation.mutate(job.id); }}
               />
@@ -162,7 +171,7 @@ export default function HistoryPage() {
   );
 }
 
-function HistoryCard({ job, isPlaying, onPlay, onDownloadSrt, onDelete }) {
+function HistoryCard({ job, isPlaying, onPlay, onDownloadMp3, onDownloadSrt, onDelete }) {
   return (
     <div className="card hover:border-dark-500 transition-colors">
       <div className="flex items-center gap-4">
@@ -218,9 +227,9 @@ function HistoryCard({ job, isPlaying, onPlay, onDownloadSrt, onDelete }) {
                   ? <Pause className="w-4 h-4 text-primary-400" />
                   : <Play className="w-4 h-4" />}
               </button>
-              <a href={job.output_url} download className="btn-ghost p-2" title="Tải MP3">
+              <button onClick={onDownloadMp3} className="btn-ghost p-2" title="Tải MP3">
                 <Download className="w-4 h-4" />
-              </a>
+              </button>
               {job.segments?.length > 0 && (
                 <button
                   onClick={onDownloadSrt}

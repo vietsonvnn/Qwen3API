@@ -1,5 +1,6 @@
 import axios from 'axios';
 import config from '../config/index.js';
+import { getAudioDuration } from './audioMerger.js';
 
 const BASE_URL = config.qwen.baseUrl;
 const API_KEY = config.qwen.apiKey;
@@ -152,9 +153,11 @@ export async function synthesizeSingle(text, voiceId, options = {}) {
   });
 
   const wavBuffer = Buffer.from(wavResponse.data);
+  // Use ffprobe for reliable duration — WAV header parsing was giving wrong values
+  const duration = await getAudioDuration(wavBuffer).catch(() => getWavDurationMs(wavBuffer) / 1000);
   return {
     buffer: wavBuffer,
-    duration: getWavDurationMs(wavBuffer) / 1000, // seconds
+    duration, // seconds
     characters: response.data.usage?.characters || text.length,
   };
 }

@@ -50,6 +50,21 @@ export const ttsApi = {
     `${import.meta.env.VITE_API_URL || ''}/api/tts/jobs/${jobId}/srt`,
 };
 
+// Cross-origin MP3 download (browser <a download> doesn't work cross-origin)
+export async function downloadMp3File(url, title) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Không thể tải file MP3');
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = `${(title || 'audio').replace(/[^\w\-]/g, '_')}.mp3`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+}
+
 // Authenticated SRT download (browser <a download> doesn't send auth headers)
 export async function downloadSrtFile(jobId, title) {
   const token = localStorage.getItem('access_token');

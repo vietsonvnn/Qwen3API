@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ttsApi, voiceApi, downloadSrtFile } from '../services/api';
+import { ttsApi, voiceApi, downloadSrtFile, downloadMp3File } from '../services/api';
 import toast from 'react-hot-toast';
 import mammoth from 'mammoth';
 import {
@@ -141,6 +141,14 @@ export default function TtsPage() {
     audioRef.current.play();
     audioRef.current.onended = () => setPlayingJobId(null);
     setPlayingJobId(job.id);
+  };
+
+  const handleDownloadMp3 = async (job) => {
+    try {
+      await downloadMp3File(job.output_url, job.job_title || job.voice_name);
+    } catch {
+      toast.error('Không thể tải file MP3');
+    }
   };
 
   const handleDownloadSrt = async (job) => {
@@ -395,9 +403,9 @@ export default function TtsPage() {
                         ? <><Pause className="w-3.5 h-3.5" /> Dừng</>
                         : <><Play className="w-3.5 h-3.5" /> Nghe</>}
                     </button>
-                    <a href={activeJob.output_url} download className="btn-secondary gap-1.5 text-xs py-1.5 px-3">
+                    <button onClick={() => handleDownloadMp3(activeJob)} className="btn-secondary gap-1.5 text-xs py-1.5 px-3">
                       <Download className="w-3.5 h-3.5" /> MP3
-                    </a>
+                    </button>
                     {activeJob.segments?.length > 0 && (
                       <button
                         onClick={() => handleDownloadSrt(activeJob)}
@@ -445,6 +453,7 @@ export default function TtsPage() {
                   job={job}
                   isPlaying={playingJobId === job.id}
                   onPlay={() => handlePlay(job)}
+                  onDownloadMp3={() => handleDownloadMp3(job)}
                   onDownloadSrt={() => handleDownloadSrt(job)}
                 />
               ))}
@@ -511,7 +520,7 @@ function VoiceCard({ voice, selected, onClick, onPreview, isPreviewing }) {
   );
 }
 
-function RecentJobCard({ job, isPlaying, onPlay, onDownloadSrt }) {
+function RecentJobCard({ job, isPlaying, onPlay, onDownloadMp3, onDownloadSrt }) {
   return (
     <div className="card-sm hover:border-dark-500 transition-colors">
       <div className="flex items-center gap-1.5 mb-1.5">
@@ -533,9 +542,9 @@ function RecentJobCard({ job, isPlaying, onPlay, onDownloadSrt }) {
               ? <Pause className="w-3 h-3 text-primary-400" />
               : <Play className="w-3 h-3" />}
           </button>
-          <a href={job.output_url} download className="btn-ghost p-1.5 rounded-lg" title="Tải MP3">
+          <button onClick={onDownloadMp3} className="btn-ghost p-1.5 rounded-lg" title="Tải MP3">
             <Download className="w-3 h-3" />
-          </a>
+          </button>
           {job.segments?.length > 0 && (
             <button onClick={onDownloadSrt} className="btn-ghost p-1.5 rounded-lg hover:text-primary-400" title="Tải SRT">
               <Subtitles className="w-3 h-3" />
