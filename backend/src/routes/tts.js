@@ -23,6 +23,7 @@ import { mergeAudioBuffers, getAudioDuration } from '../services/audioMerger.js'
 import { uploadBuffer } from '../services/storage.js';
 import config from '../config/index.js';
 import { v4 as uuidv4 } from 'uuid';
+import { generateSrt } from '../utils/srt.js';
 
 const router = new Hono();
 
@@ -157,23 +158,13 @@ router.get('/jobs/:id/srt', async (c) => {
   if (!job) return c.json({ error: 'Job not found' }, 404);
   if (!job.segments?.length) return c.json({ error: 'No subtitle data for this job' }, 404);
 
-  const srt = job.segments.map((seg, i) =>
-    `${i + 1}\n${msToSrtTime(seg.startMs)} --> ${msToSrtTime(seg.endMs)}\n${seg.text.trim()}\n`
-  ).join('\n');
+  const srt = generateSrt(job.segments);
 
   const filename = (job.job_title || job.voice_name || 'subtitles').replace(/[^a-zA-Z0-9_\-]/g, '_');
   c.header('Content-Type', 'text/plain; charset=utf-8');
   c.header('Content-Disposition', `attachment; filename="${filename}.srt"`);
   return c.text(srt);
 });
-
-function msToSrtTime(ms) {
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  const ms2 = ms % 1000;
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms2).padStart(3, '0')}`;
-}
 
 // =====================================================
 // BACKGROUND JOB PROCESSOR
