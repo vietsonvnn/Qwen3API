@@ -30,8 +30,26 @@ export async function authMiddleware(c, next) {
     return c.json({ error: 'Invalid or expired token' }, 401);
   }
 
-  c.set('userId', userData.user.id);
+  const userId = userData.user.id;
+  c.set('userId', userId);
   c.set('userEmail', userData.user.email);
+
+  // Check user status — block pending/suspended users (except /api/user/me for status check)
+  const path = c.req.path;
+  if (path !== '/api/user/me') {
+    try {
+      const profile = await getUserById(userId);
+      if (profile?.status === 'pending') {
+        return c.json({ error: 'Tài khoản đang chờ duyệt. Vui lòng liên hệ admin.', code: 'PENDING_APPROVAL' }, 403);
+      }
+      if (profile?.status === 'suspended') {
+        return c.json({ error: 'Tài khoản đã bị khoá.', code: 'SUSPENDED' }, 403);
+      }
+    } catch {
+      // If profile check fails, allow through (profile may not exist yet)
+    }
+  }
+
   await next();
 }
 

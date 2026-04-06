@@ -127,8 +127,13 @@ export const adminApi = {
   getUsers: () => api.get('/admin/users'),
   updateUser: (id, data) => api.patch(`/admin/users/${id}`, data),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
+  approveUser: (id) => api.post(`/admin/users/${id}/approve`),
+  rejectUser: (id) => api.post(`/admin/users/${id}/reject`),
   getAllJobs: (params = {}) => api.get('/admin/jobs', { params }),
   getStats: () => api.get('/admin/stats'),
+  cleanup: () => api.post('/admin/cleanup'),
+  getSettings: () => api.get('/admin/settings'),
+  updateSetting: (key, value, description) => api.put('/admin/settings', { key, value, description }),
 };
 
 export default api;

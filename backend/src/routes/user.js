@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { authMiddleware } from '../middleware/auth.js';
-import { getUserById, updateUserLastLogin, updateUserProfile } from '../services/database.js';
+import { getUserById, updateUserLastLogin, updateUserProfile, ensureUserProfile } from '../services/database.js';
 
 const router = new Hono();
 router.use('*', authMiddleware);
@@ -8,7 +8,13 @@ router.use('*', authMiddleware);
 // GET /api/user/me
 router.get('/me', async (c) => {
   const userId = c.get('userId');
-  const user = await getUserById(userId);
+  const email = c.get('userEmail');
+
+  // Auto-create profile if not exists (replaces DB trigger)
+  let user = await getUserById(userId).catch(() => null);
+  if (!user) {
+    user = await ensureUserProfile(userId, email);
+  }
   if (!user) return c.json({ error: 'User not found' }, 404);
 
   await updateUserLastLogin(userId);

@@ -128,6 +128,14 @@ router.post('/:id/preview', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const previewText = body.text || 'Xin chào, đây là giọng nói của tôi được tạo bằng AI.';
 
+  // Delete old preview file before generating new one
+  if (voice.preview_url) {
+    try {
+      const oldKey = new URL(voice.preview_url).pathname.split('/object/public/' + config.storage.audioBucket + '/')[1];
+      if (oldKey) await deleteFile(decodeURIComponent(oldKey), config.storage.audioBucket);
+    } catch (e) { console.error('Failed to delete old preview:', e.message); }
+  }
+
   const preview = await previewVoice(voice.qwen_voice_id, previewText);
   const merged = await mergeAudioBuffers([preview.buffer]);
   const previewKey = `audio/${userId}/preview_${uuidv4()}.mp3`;
@@ -160,6 +168,20 @@ router.delete('/:id', async (c) => {
 
   const voice = await getClonedVoiceById(voiceId, userId);
   if (!voice) return c.json({ error: 'Voice not found' }, 404);
+
+  // Delete storage files (source audio + preview)
+  if (voice.source_file_url) {
+    try {
+      const sourceKey = new URL(voice.source_file_url).pathname.split('/object/public/' + config.storage.sourcesBucket + '/')[1];
+      if (sourceKey) await deleteFile(decodeURIComponent(sourceKey), config.storage.sourcesBucket);
+    } catch (e) { console.error('Failed to delete source file:', e.message); }
+  }
+  if (voice.preview_url) {
+    try {
+      const previewKey = new URL(voice.preview_url).pathname.split('/object/public/' + config.storage.audioBucket + '/')[1];
+      if (previewKey) await deleteFile(decodeURIComponent(previewKey), config.storage.audioBucket);
+    } catch (e) { console.error('Failed to delete preview file:', e.message); }
+  }
 
   await deleteClonedVoice(voiceId, userId);
 

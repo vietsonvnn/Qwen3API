@@ -1,7 +1,20 @@
 import axios from 'axios';
 import config from '../config/index.js';
 import { getAudioDuration } from './audioMerger.js';
+import { getAppSetting } from './database.js';
 
+// API key and base URL: DB settings override env vars
+async function getApiKey() {
+  const dbKey = await getAppSetting('qwen_api_key').catch(() => null);
+  return dbKey || config.qwen.apiKey;
+}
+
+async function getBaseUrl() {
+  const dbUrl = await getAppSetting('qwen_base_url').catch(() => null);
+  return dbUrl || config.qwen.baseUrl;
+}
+
+// Keep legacy constants for non-async usage
 const BASE_URL = config.qwen.baseUrl;
 const API_KEY = config.qwen.apiKey;
 
@@ -121,15 +134,18 @@ export async function synthesizeSingle(text, voiceId, options = {}) {
     input.language_type = language;
   }
 
+  const apiKey = await getApiKey();
+  const baseUrl = await getBaseUrl();
+
   let response;
   try {
     response = await withRetry(() =>
       axios.post(
-        `${BASE_URL}${config.qwen.ttsEndpoint}`,
+        `${baseUrl}${config.qwen.ttsEndpoint}`,
         { model, input },
         {
           headers: {
-            Authorization: `Bearer ${API_KEY}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
           timeout: 60000,
@@ -302,14 +318,17 @@ export async function createVoiceprint(audioBuffer, fileName, options = {}) {
     },
   };
 
+  const apiKey = await getApiKey();
+  const baseUrl = await getBaseUrl();
+
   let response;
   try {
     response = await axios.post(
-      `${BASE_URL}${config.qwen.cloneEndpoint}`,
+      `${baseUrl}${config.qwen.cloneEndpoint}`,
       payload,
       {
         headers: {
-          Authorization: `Bearer ${API_KEY}`,
+          Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         timeout: 120000,

@@ -21,6 +21,26 @@ export async function getUserById(userId) {
   return data;
 }
 
+/**
+ * Auto-create user profile if it doesn't exist (replaces DB trigger).
+ * New users start with status 'pending' and must be approved by admin.
+ */
+export async function ensureUserProfile(userId, email) {
+  const displayName = email ? email.split('@')[0] : 'User';
+  const { data, error } = await supabaseAdmin
+    .from('user_profiles')
+    .upsert({
+      id: userId,
+      email,
+      display_name: displayName,
+      status: 'pending',
+    }, { onConflict: 'id', ignoreDuplicates: true })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
 export async function updateUserLastLogin(userId) {
   await supabaseAdmin
     .from('user_profiles')
@@ -262,6 +282,44 @@ export async function adminUpdateUser(userId, updates) {
     .from('user_profiles')
     .update(allowed)
     .eq('id', userId)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+// =====================================================
+// APP SETTINGS
+// =====================================================
+
+export async function getAppSettings() {
+  const { data, error } = await supabaseAdmin
+    .from('app_settings')
+    .select('*')
+    .order('key');
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
+export async function getAppSetting(key) {
+  const { data, error } = await supabaseAdmin
+    .from('app_settings')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.value || null;
+}
+
+export async function upsertAppSetting(key, value, description) {
+  const { data, error } = await supabaseAdmin
+    .from('app_settings')
+    .upsert({
+      key,
+      value,
+      description: description || undefined,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' })
     .select()
     .single();
   if (error) throw new Error(error.message);

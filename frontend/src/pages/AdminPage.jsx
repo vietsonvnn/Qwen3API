@@ -9,6 +9,7 @@ import {
   ShieldCheck, Users, RefreshCw, Save, Loader,
   CheckCircle, XCircle, Clock, Trash2, List,
   TrendingUp, AlertCircle, BarChart2, Type,
+  UserCheck, UserX, Settings, Key, Eye, EyeOff, Globe, Zap,
 } from 'lucide-react';
 
 const ROLE_OPTIONS = [
@@ -17,6 +18,7 @@ const ROLE_OPTIONS = [
 ];
 
 const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
 ];
@@ -101,6 +103,17 @@ export default function AdminPage() {
           <List className="w-4 h-4" />
           Lịch sử Jobs
         </button>
+        <button
+          onClick={() => setTab('settings')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            tab === 'settings'
+              ? 'border-primary-500 text-primary-400'
+              : 'border-transparent text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <Settings className="w-4 h-4" />
+          Cài đặt
+        </button>
       </div>
 
       {/* Tab: Users */}
@@ -111,7 +124,28 @@ export default function AdminPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {users.map(user => (
+            {/* Pending users section */}
+            {users.filter(u => u.status === 'pending').length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-yellow-400 mb-2 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Chờ duyệt ({users.filter(u => u.status === 'pending').length})
+                </h3>
+                <div className="space-y-2">
+                  {users.filter(u => u.status === 'pending').map(user => (
+                    <UserRow
+                      key={user.id}
+                      user={user}
+                      isMe={user.id === myProfile?.id}
+                      onUpdated={() => queryClient.invalidateQueries({ queryKey: ['adminUsers'] })}
+                      onDeleted={() => queryClient.invalidateQueries({ queryKey: ['adminUsers'] })}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Active/Suspended users */}
+            {users.filter(u => u.status !== 'pending').map(user => (
               <UserRow
                 key={user.id}
                 user={user}
@@ -126,6 +160,9 @@ export default function AdminPage() {
 
       {/* Tab: Jobs */}
       {tab === 'jobs' && <AllJobsTab />}
+
+      {/* Tab: Settings */}
+      {tab === 'settings' && <SettingsTab />}
     </div>
   );
 }
@@ -206,7 +243,35 @@ function UserRow({ user, isMe, onUpdated, onDeleted }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [approving, setApproving] = useState(false);
+
   const isDirty = role !== user.role || status !== user.status || maxVoices !== user.max_voices;
+
+  const handleApprove = async () => {
+    setApproving(true);
+    try {
+      await adminApi.approveUser(user.id);
+      toast.success(`Đã duyệt ${user.display_name || user.email}`);
+      onUpdated();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Duyệt thất bại');
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setDeleting(true);
+    try {
+      await adminApi.rejectUser(user.id);
+      toast.success(`Đã từ chối ${user.display_name || user.email}`);
+      onDeleted();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Từ chối thất bại');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -326,9 +391,36 @@ function UserRow({ user, isMe, onUpdated, onDeleted }) {
             <label className="text-xs text-gray-600 uppercase tracking-wide px-0.5 invisible">x</label>
             {status === 'active'
               ? <CheckCircle className="w-4 h-4 text-green-400" />
+              : status === 'pending'
+              ? <Clock className="w-4 h-4 text-yellow-400" />
               : <XCircle className="w-4 h-4 text-red-400" />
             }
           </div>
+
+          {/* Quick approve/reject for pending users */}
+          {user.status === 'pending' && !isMe && (
+            <div className="flex flex-col gap-0.5">
+              <label className="text-xs text-gray-600 uppercase tracking-wide px-0.5 invisible">x</label>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleApprove}
+                  disabled={approving}
+                  className="btn px-2 py-1.5 text-xs gap-1 bg-green-500/20 border border-green-500/40 text-green-400 hover:bg-green-500/30"
+                >
+                  {approving ? <Loader className="w-3 h-3 animate-spin" /> : <UserCheck className="w-3 h-3" />}
+                  Duyệt
+                </button>
+                <button
+                  onClick={handleReject}
+                  disabled={deleting}
+                  className="btn px-2 py-1.5 text-xs gap-1 bg-red-500/20 border border-red-500/40 text-red-400 hover:bg-red-500/30"
+                >
+                  {deleting ? <Loader className="w-3 h-3 animate-spin" /> : <UserX className="w-3 h-3" />}
+                  Từ chối
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Save button */}
           <div className="flex flex-col gap-0.5">
@@ -493,6 +585,163 @@ function AllJobsTab() {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// =====================================================
+// SETTINGS TAB
+// =====================================================
+
+const SETTING_META = {
+  qwen_api_key: { label: 'Qwen API Key', icon: Key, placeholder: 'sk-...', sensitive: true, description: 'API Key từ DashScope (Alibaba Cloud) để sử dụng Qwen3 TTS' },
+  qwen_base_url: { label: 'Qwen Base URL', icon: Globe, placeholder: 'https://dashscope-intl.aliyuncs.com/api/v1', sensitive: false, description: 'Base URL của Qwen3 API' },
+};
+
+function SettingsTab() {
+  const queryClient = useQueryClient();
+  const { data: settingsData, isLoading } = useQuery({
+    queryKey: ['adminSettings'],
+    queryFn: () => adminApi.getSettings().then(r => r.data.data),
+    staleTime: 30 * 1000,
+  });
+
+  const [values, setValues] = useState({});
+  const [showKeys, setShowKeys] = useState({});
+  const [saving, setSaving] = useState({});
+  const [cleaningUp, setCleaningUp] = useState(false);
+
+  const settings = settingsData || [];
+  const getVal = (key) => values[key] !== undefined ? values[key] : (settings.find(s => s.key === key)?.value || '');
+  const isChanged = (key) => {
+    const original = settings.find(s => s.key === key)?.value || '';
+    return values[key] !== undefined && values[key] !== original;
+  };
+
+  const handleSave = async (key) => {
+    setSaving(s => ({ ...s, [key]: true }));
+    try {
+      const meta = SETTING_META[key] || {};
+      await adminApi.updateSetting(key, values[key], meta.description);
+      toast.success(`Đã lưu ${meta.label || key}`);
+      queryClient.invalidateQueries({ queryKey: ['adminSettings'] });
+      setValues(v => { const n = { ...v }; delete n[key]; return n; });
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Lưu thất bại');
+    } finally {
+      setSaving(s => ({ ...s, [key]: false }));
+    }
+  };
+
+  const handleCleanup = async () => {
+    setCleaningUp(true);
+    try {
+      const res = await adminApi.cleanup();
+      const { deleted, errors } = res.data.data;
+      toast.success(`Cleanup xong: ${deleted} files xóa, ${errors} lỗi`);
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Cleanup thất bại');
+    } finally {
+      setCleaningUp(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-20">
+        <Loader className="w-6 h-6 animate-spin text-primary-400" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* API Keys Section */}
+      <div className="card">
+        <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <Key className="w-4 h-4 text-primary-400" />
+          API Keys
+        </h3>
+        <div className="space-y-4">
+          {Object.entries(SETTING_META).map(([key, meta]) => {
+            const Icon = meta.icon;
+            const val = getVal(key);
+            const isShown = showKeys[key];
+            const changed = isChanged(key);
+
+            return (
+              <div key={key} className="space-y-1.5">
+                <label className="text-xs text-gray-400 flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5" />
+                  {meta.label}
+                </label>
+                <p className="text-xs text-gray-600">{meta.description}</p>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type={meta.sensitive && !isShown ? 'password' : 'text'}
+                      value={val}
+                      onChange={e => setValues(v => ({ ...v, [key]: e.target.value }))}
+                      placeholder={meta.placeholder}
+                      className="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-primary-500 pr-10 font-mono"
+                    />
+                    {meta.sensitive && (
+                      <button
+                        type="button"
+                        onClick={() => setShowKeys(s => ({ ...s, [key]: !s[key] }))}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+                      >
+                        {isShown ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => handleSave(key)}
+                    disabled={!changed || saving[key]}
+                    className={`btn px-3 py-2 text-xs gap-1.5 flex-shrink-0 ${
+                      changed ? 'btn-primary' : 'btn-secondary opacity-50'
+                    }`}
+                  >
+                    {saving[key]
+                      ? <Loader className="w-3 h-3 animate-spin" />
+                      : <Save className="w-3 h-3" />
+                    }
+                    Lưu
+                  </button>
+                </div>
+                {val && meta.sensitive && (
+                  <p className="text-xs text-green-500/70">
+                    <CheckCircle className="w-3 h-3 inline mr-1" />
+                    Đã cấu hình
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Storage Cleanup Section */}
+      <div className="card">
+        <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+          <Zap className="w-4 h-4 text-yellow-400" />
+          Storage
+        </h3>
+        <p className="text-xs text-gray-500 mb-3">
+          Xóa audio files cũ hơn 3 ngày để giữ dung lượng dưới giới hạn. Tự động chạy mỗi 6 giờ.
+        </p>
+        <button
+          onClick={handleCleanup}
+          disabled={cleaningUp}
+          className="btn-secondary text-xs px-4 py-2 gap-1.5"
+        >
+          {cleaningUp
+            ? <Loader className="w-3 h-3 animate-spin" />
+            : <Trash2 className="w-3 h-3" />
+          }
+          Chạy Cleanup ngay
+        </button>
+      </div>
     </div>
   );
 }

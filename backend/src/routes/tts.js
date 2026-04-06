@@ -20,7 +20,7 @@ import {
   previewSystemVoice,
 } from '../services/qwenService.js';
 import { mergeAudioBuffers, getAudioDuration } from '../services/audioMerger.js';
-import { uploadBuffer } from '../services/storage.js';
+import { uploadBuffer, deleteFile } from '../services/storage.js';
 import config from '../config/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { generateSrt } from '../utils/srt.js';
@@ -133,6 +133,17 @@ router.get('/jobs/:id', async (c) => {
 router.delete('/jobs/:id', async (c) => {
   const userId = c.get('userId');
   const jobId = c.req.param('id');
+
+  // Get job to find the storage path before deleting
+  const job = await getTtsJobById(jobId, userId);
+  if (!job) return c.json({ error: 'Job not found' }, 404);
+
+  // Delete audio file from storage
+  if (job.output_url) {
+    const audioKey = `audio/${userId}/${jobId}.mp3`;
+    await deleteFile(audioKey, config.storage.audioBucket);
+  }
+
   await deleteTtsJob(jobId, userId);
   return c.json({ success: true });
 });

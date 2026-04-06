@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     display_name TEXT,
     avatar_url TEXT,
     role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-    status TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended')),
+    status TEXT DEFAULT 'pending' CHECK (status IN ('active', 'suspended', 'pending')),
     total_characters_used BIGINT DEFAULT 0,
     max_voices INT DEFAULT 10,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -25,24 +25,9 @@ CREATE TABLE IF NOT EXISTS user_profiles (
 
 CREATE INDEX idx_user_profiles_email ON user_profiles(email);
 
--- Auto-create profile on signup
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO user_profiles (id, email, display_name)
-    VALUES (
-        NEW.id,
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1))
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+-- NOTE: Profile creation is handled by the backend (ensureUserProfile in database.js)
+-- instead of a DB trigger, to avoid issues with Supabase quota restrictions
+-- blocking trigger-based INSERTs. Profile is auto-created on first /api/user/me call.
 
 -- =====================================================
 -- CLONED VOICES

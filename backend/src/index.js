@@ -7,6 +7,7 @@ import ttsRoutes from './routes/tts.js';
 import voiceRoutes from './routes/voice.js';
 import userRoutes from './routes/user.js';
 import adminRoutes from './routes/admin.js';
+import { startCleanupScheduler } from './services/storageCleanup.js';
 
 const app = new Hono();
 
@@ -38,4 +39,5 @@ app.onError((err, c) => {
 
 serve({ fetch: app.fetch, port: config.port }, () => {
   console.log(`Qwen Voice Tool API running on port ${config.port}`);
+  startCleanupScheduler();
 });
