@@ -18,6 +18,7 @@ export default function TtsPage() {
   const [language, setLanguage] = useState('auto');
   const [jobTitle, setJobTitle] = useState('');
   const [voiceFilter, setVoiceFilter] = useState('all'); // 'all' | 'female' | 'male'
+  const [localeFilter, setLocaleFilter] = useState('all'); // 'all' | 'zh' | 'en' | 'ja' | 'ko' | 'es' | 'ru' | 'it' | 'de' | 'fr' | 'pt' | 'dialect'
   const [activeJob, setActiveJob] = useState(null);
   const [playingJobId, setPlayingJobId] = useState(null);
   const [previewingId, setPreviewingId] = useState(null);
@@ -206,15 +207,17 @@ export default function TtsPage() {
   const systemVoices = (systemVoicesData || []).map(v => ({
     id: v.id, name: v.name, type: 'system',
     sub: v.description, gender: v.gender || 'male',
+    locale: v.locale || 'zh',
   }));
 
   const allVoices = [...clonedVoices, ...systemVoices];
 
-  const filteredVoices = voiceFilter === 'all'
-    ? allVoices
-    : voiceFilter === 'female'
-      ? allVoices.filter(v => v.gender === 'female')
-      : allVoices.filter(v => v.gender === 'male' || v.gender === 'cloned');
+  const filteredVoices = allVoices.filter(v => {
+    if (voiceFilter === 'female' && v.gender !== 'female') return false;
+    if (voiceFilter === 'male' && v.gender !== 'male' && v.gender !== 'cloned') return false;
+    if (localeFilter !== 'all' && v.type === 'system' && v.locale !== localeFilter) return false;
+    return true;
+  });
 
   const charCount = text.length;
   const isGenerating = generateMutation.isPending || activeJob?.status === 'processing';
@@ -237,8 +240,8 @@ export default function TtsPage() {
           <div className="flex gap-1">
             {[
               { key: 'all', label: 'All' },
-              { key: 'female', label: '♀ Female' },
-              { key: 'male', label: '♂ Male' },
+              { key: 'female', label: '♀ Nữ' },
+              { key: 'male', label: '♂ Nam' },
             ].map(f => (
               <button
                 key={f.key}
@@ -252,6 +255,25 @@ export default function TtsPage() {
                 {f.label}
               </button>
             ))}
+            <span className="text-gray-700 mx-1">|</span>
+            <select
+              value={localeFilter}
+              onChange={e => setLocaleFilter(e.target.value)}
+              className="bg-dark-700 border border-dark-600 rounded-md text-xs text-gray-300 px-2 py-1 focus:outline-none focus:border-primary-500/50 cursor-pointer"
+            >
+              <option value="all">Tất cả ngôn ngữ</option>
+              <option value="zh">🇨🇳 Trung</option>
+              <option value="en">🇺🇸 Anh</option>
+              <option value="ja">🇯🇵 Nhật</option>
+              <option value="ko">🇰🇷 Hàn</option>
+              <option value="es">🇪🇸 Tây Ban Nha</option>
+              <option value="fr">🇫🇷 Pháp</option>
+              <option value="de">🇩🇪 Đức</option>
+              <option value="ru">🇷🇺 Nga</option>
+              <option value="it">🇮🇹 Ý</option>
+              <option value="pt">🇧🇷 Bồ Đào Nha</option>
+              <option value="dialect">🗣 Phương ngữ TQ</option>
+            </select>
           </div>
         </div>
 
