@@ -9,9 +9,8 @@ import {
   logUsage,
 } from '../services/database.js';
 import { createVoiceprint, previewVoice, SYSTEM_VOICES } from '../services/qwenService.js';
-import { uploadBuffer, downloadAndStore, deleteFile } from '../services/storage.js';
+import { uploadBuffer, deleteFile, extractKey } from '../services/storage.js';
 import { mergeAudioBuffers } from '../services/audioMerger.js';
-import config from '../config/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = new Hono();
@@ -76,7 +75,7 @@ router.post('/clone', async (c) => {
   const sourceKey = `sources/${userId}/${uuidv4()}_${audioFile.name}`;
   let sourceUrl = null;
   try {
-    sourceUrl = await uploadBuffer(audioBuffer, sourceKey, config.storage.sourcesBucket, audioFile.type);
+    sourceUrl = await uploadBuffer(audioBuffer, sourceKey, null, audioFile.type);
   } catch (err) {
     console.error('Source audio upload failed (non-critical):', err.message);
   }
@@ -88,7 +87,7 @@ router.post('/clone', async (c) => {
     const preview = await previewVoice(qwenVoiceId, previewText);
     const mergedPreview = await mergeAudioBuffers([preview.buffer]);
     const previewKey = `audio/${userId}/preview_${uuidv4()}.mp3`;
-    previewUrl = await uploadBuffer(mergedPreview, previewKey, config.storage.audioBucket, 'audio/mpeg');
+    previewUrl = await uploadBuffer(mergedPreview, previewKey, null, 'audio/mpeg');
   } catch (err) {
     console.error('Preview generation failed (non-critical):', err.message);
   }
@@ -130,16 +129,17 @@ router.post('/:id/preview', async (c) => {
 
   // Delete old preview file before generating new one
   if (voice.preview_url) {
-    try {
-      const oldKey = new URL(voice.preview_url).pathname.split('/object/public/' + config.storage.audioBucket + '/')[1];
-      if (oldKey) await deleteFile(decodeURIComponent(oldKey), config.storage.audioBucket);
-    } catch (e) { console.error('Failed to delete old preview:', e.message); }
+    const oldKey = extractKey(voice.preview_url);
+    if (oldKey) {
+      try { await deleteFile(oldKey); }
+      catch (e) { console.error('Failed to delete old preview:', e.message); }
+    }
   }
 
   const preview = await previewVoice(voice.qwen_voice_id, previewText);
   const merged = await mergeAudioBuffers([preview.buffer]);
   const previewKey = `audio/${userId}/preview_${uuidv4()}.mp3`;
-  const previewUrl = await uploadBuffer(merged, previewKey, config.storage.audioBucket, 'audio/mpeg');
+  const previewUrl = await uploadBuffer(merged, previewKey, null, 'audio/mpeg');
 
   await updateClonedVoice(voiceId, userId, { preview_url: previewUrl, preview_text: previewText });
 
@@ -170,17 +170,12 @@ router.delete('/:id', async (c) => {
   if (!voice) return c.json({ error: 'Voice not found' }, 404);
 
   // Delete storage files (source audio + preview)
-  if (voice.source_file_url) {
-    try {
-      const sourceKey = new URL(voice.source_file_url).pathname.split('/object/public/' + config.storage.sourcesBucket + '/')[1];
-      if (sourceKey) await deleteFile(decodeURIComponent(sourceKey), config.storage.sourcesBucket);
-    } catch (e) { console.error('Failed to delete source file:', e.message); }
-  }
-  if (voice.preview_url) {
-    try {
-      const previewKey = new URL(voice.preview_url).pathname.split('/object/public/' + config.storage.audioBucket + '/')[1];
-      if (previewKey) await deleteFile(decodeURIComponent(previewKey), config.storage.audioBucket);
-    } catch (e) { console.error('Failed to delete preview file:', e.message); }
+  for (const url of [voice.source_file_url, voice.preview_url]) {
+    const key = extractKey(url);
+    if (key) {
+      try { await deleteFile(key); }
+      catch (e) { console.error('Failed to delete storage file:', e.message); }
+    }
   }
 
   await deleteClonedVoice(voiceId, userId);

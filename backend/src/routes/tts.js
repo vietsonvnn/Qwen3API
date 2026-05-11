@@ -21,7 +21,6 @@ import {
 } from '../services/qwenService.js';
 import { mergeAudioBuffers, getAudioDuration } from '../services/audioMerger.js';
 import { uploadBuffer, deleteFile } from '../services/storage.js';
-import config from '../config/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import { generateSrt } from '../utils/srt.js';
 
@@ -141,7 +140,7 @@ router.delete('/jobs/:id', async (c) => {
   // Delete audio file from storage
   if (job.output_url) {
     const audioKey = `audio/${userId}/${jobId}.mp3`;
-    await deleteFile(audioKey, config.storage.audioBucket);
+    await deleteFile(audioKey);
   }
 
   await deleteTtsJob(jobId, userId);
@@ -157,7 +156,6 @@ router.get('/download/:id', async (c) => {
   if (!job) return c.json({ error: 'Job not found' }, 404);
   if (!job.output_url) return c.json({ error: 'Audio not ready' }, 404);
 
-  // Redirect to Supabase storage URL
   return c.redirect(job.output_url);
 });
 
@@ -200,9 +198,8 @@ async function processJob(jobId, userId, text, voiceId, options) {
     // Get duration
     const duration = await getAudioDuration(mergedMp3).catch(() => null);
 
-    // Upload to Supabase Storage
     const audioKey = `audio/${userId}/${jobId}.mp3`;
-    const outputUrl = await uploadBuffer(mergedMp3, audioKey, config.storage.audioBucket, 'audio/mpeg');
+    const outputUrl = await uploadBuffer(mergedMp3, audioKey, null, 'audio/mpeg');
 
     // Update job as completed (include segments for SRT export)
     await updateTtsJob(jobId, {

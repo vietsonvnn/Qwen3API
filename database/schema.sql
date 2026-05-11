@@ -1,6 +1,7 @@
 -- =====================================================
--- QWEN VOICE TOOL — Database Schema
--- Run this in Supabase SQL Editor
+-- QWEN VOICE TOOL — Database Schema (vanilla PostgreSQL)
+-- Run on any Postgres (Railway, Neon, RDS, local).
+--   psql "$DATABASE_URL" -f database/schema.sql
 -- =====================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -10,12 +11,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- =====================================================
 
 CREATE TABLE IF NOT EXISTS user_profiles (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    email TEXT NOT NULL,
+    id UUID PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
     display_name TEXT,
     avatar_url TEXT,
     role TEXT DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-    status TEXT DEFAULT 'pending' CHECK (status IN ('active', 'suspended', 'pending')),
+    status TEXT DEFAULT 'pending' CHECK (status IN ('active', 'suspended', 'pending', 'banned')),
     total_characters_used BIGINT DEFAULT 0,
     max_voices INT DEFAULT 10,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -23,11 +24,10 @@ CREATE TABLE IF NOT EXISTS user_profiles (
     last_login_at TIMESTAMPTZ
 );
 
-CREATE INDEX idx_user_profiles_email ON user_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
 
--- NOTE: Profile creation is handled by the backend (ensureUserProfile in database.js)
--- instead of a DB trigger, to avoid issues with Supabase quota restrictions
--- blocking trigger-based INSERTs. Profile is auto-created on first /api/user/me call.
+-- Profile creation is handled by the backend (upsertUserProfile in services/database.js)
+-- after Google OAuth login — no DB trigger needed.
 
 -- =====================================================
 -- CLONED VOICES
@@ -38,13 +38,13 @@ CREATE TABLE IF NOT EXISTS cloned_voices (
     user_id UUID NOT NULL REFERENCES user_profiles(id) ON DELETE CASCADE,
 
     -- Qwen3 voiceprint
-    qwen_voice_id TEXT NOT NULL,          -- e.g. "custom_xxx" returned by Qwen3
+    qwen_voice_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
     language TEXT DEFAULT 'auto',
 
-    -- Source audio
-    source_file_url TEXT,                 -- stored in Supabase Storage
+    -- Source audio (stored in object storage)
+    source_file_url TEXT,
     source_filename TEXT,
     source_duration_seconds DECIMAL(8,2),
 
@@ -63,8 +63,8 @@ CREATE TABLE IF NOT EXISTS cloned_voices (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_cloned_voices_user ON cloned_voices(user_id);
-CREATE INDEX idx_cloned_voices_status ON cloned_voices(status);
+CREATE INDEX IF NOT EXISTS idx_cloned_voices_user   ON cloned_voices(user_id);
+CREATE INDEX IF NOT EXISTS idx_cloned_voices_status ON cloned_voices(status);
 
 -- =====================================================
 -- TTS JOBS
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS tts_jobs (
     total_characters INT NOT NULL DEFAULT 0,
 
     -- Voice
-    voice_id TEXT NOT NULL,               -- system voice ID or cloned qwen_voice_id
+    voice_id TEXT NOT NULL,
     voice_name TEXT,
     voice_type TEXT DEFAULT 'system' CHECK (voice_type IN ('system', 'cloned')),
 
@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS tts_jobs (
     language TEXT DEFAULT 'auto',
     job_title TEXT,
 
-    -- Output
-    output_url TEXT,                      -- final audio stored in Supabase Storage
+    -- Output (stored in object storage)
+    output_url TEXT,
     output_duration_seconds DECIMAL(10,2),
     output_file_size_bytes BIGINT,
 
@@ -110,9 +110,9 @@ CREATE TABLE IF NOT EXISTS tts_jobs (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_tts_jobs_user ON tts_jobs(user_id);
-CREATE INDEX idx_tts_jobs_status ON tts_jobs(status);
-CREATE INDEX idx_tts_jobs_created ON tts_jobs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tts_jobs_user    ON tts_jobs(user_id);
+CREATE INDEX IF NOT EXISTS idx_tts_jobs_status  ON tts_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_tts_jobs_created ON tts_jobs(created_at DESC);
 
 -- =====================================================
 -- USAGE HISTORY
@@ -135,41 +135,25 @@ CREATE TABLE IF NOT EXISTS usage_history (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_usage_history_user ON usage_history(user_id);
-CREATE INDEX idx_usage_history_created ON usage_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_usage_history_user    ON usage_history(user_id);
+CREATE INDEX IF NOT EXISTS idx_usage_history_created ON usage_history(created_at DESC);
 
 -- =====================================================
--- ROW LEVEL SECURITY
+-- APP SETTINGS (key/value store for admin-tunable config)
 -- =====================================================
 
-ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cloned_voices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE tts_jobs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE usage_history ENABLE ROW LEVEL SECURITY;
-
--- user_profiles: users can read/update own profile
-CREATE POLICY "Users can view own profile" ON user_profiles
-    FOR SELECT USING (auth.uid() = id);
-CREATE POLICY "Users can update own profile" ON user_profiles
-    FOR UPDATE USING (auth.uid() = id);
-
--- cloned_voices: users manage own voices
-CREATE POLICY "Users manage own voices" ON cloned_voices
-    FOR ALL USING (auth.uid() = user_id);
-
--- tts_jobs: users manage own jobs
-CREATE POLICY "Users manage own jobs" ON tts_jobs
-    FOR ALL USING (auth.uid() = user_id);
-
--- usage_history: users read own history
-CREATE POLICY "Users read own history" ON usage_history
-    FOR SELECT USING (auth.uid() = user_id);
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value JSONB,
+    description TEXT,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- =====================================================
 -- HELPER FUNCTIONS
 -- =====================================================
 
--- Atomic character counter increment (used by backend RPC call)
+-- Atomic character counter increment
 CREATE OR REPLACE FUNCTION increment_user_characters(p_user_id UUID, p_characters INT)
 RETURNS void AS $$
 BEGIN
@@ -178,10 +162,4 @@ BEGIN
       updated_at = NOW()
   WHERE id = p_user_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- =====================================================
--- STORAGE BUCKET (run in Supabase dashboard or via API)
--- =====================================================
--- Create bucket: qwen-voice-audio (public: false)
--- Create bucket: qwen-voice-sources (public: false)
+$$ LANGUAGE plpgsql;

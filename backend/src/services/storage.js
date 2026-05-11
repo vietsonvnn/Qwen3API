@@ -1,53 +1,60 @@
-import { createClient } from '@supabase/supabase-js';
-import config from '../config/index.js';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import axios from 'axios';
+import config from '../config/index.js';
 
-const supabase = createClient(config.supabase.url, config.supabase.serviceKey);
+const PUBLIC_URL = config.storage.r2.publicUrl;
 
-/**
- * Upload a buffer to Supabase Storage
- * @param {Buffer} buffer - File content
- * @param {string} path - Storage path e.g. "audio/user-id/job-id.wav"
- * @param {string} bucket - Bucket name
- * @param {string} contentType - MIME type
- * @returns {string} Public URL
- */
-export async function uploadBuffer(buffer, path, bucket, contentType = 'audio/wav') {
-  const { error } = await supabase.storage
-    .from(bucket)
-    .upload(path, buffer, {
-      contentType,
-      upsert: true,
-    });
+const s3 = new S3Client({
+  region: 'auto',
+  endpoint: `https://${config.storage.r2.accountId}.r2.cloudflarestorage.com`,
+  credentials: {
+    accessKeyId: config.storage.r2.accessKeyId,
+    secretAccessKey: config.storage.r2.secretAccessKey,
+  },
+});
 
-  if (error) throw new Error(`Storage upload failed: ${error.message}`);
+const BUCKET = config.storage.r2.bucket;
 
-  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(path);
-  return urlData.publicUrl;
+function publicUrl(key) {
+  return `${PUBLIC_URL}/${key.replace(/^\//, '')}`;
 }
 
 /**
- * Download a file from Supabase Storage to Buffer
+ * Strip the R2 public URL prefix from a stored URL to recover the object key.
+ * Returns null if the URL is not on our R2 (e.g. legacy Supabase URL).
  */
-export async function downloadBuffer(path, bucket) {
-  const { data, error } = await supabase.storage.from(bucket).download(path);
-  if (error) throw new Error(`Storage download failed: ${error.message}`);
-  const arrayBuffer = await data.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+export function extractKey(url) {
+  if (!url) return null;
+  const prefix = PUBLIC_URL + '/';
+  return url.startsWith(prefix) ? decodeURIComponent(url.slice(prefix.length)) : null;
 }
 
-/**
- * Delete a file from Supabase Storage
- */
-export async function deleteFile(path, bucket) {
-  const { error } = await supabase.storage.from(bucket).remove([path]);
-  if (error) console.error(`Storage delete failed: ${error.message}`);
+export async function uploadBuffer(buffer, key, _bucket, contentType) {
+  await s3.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType || 'application/octet-stream',
+  }));
+  return publicUrl(key);
 }
 
-/**
- * Download audio from an external URL (e.g., expiring Qwen3 WAV URLs)
- * Must be called immediately after generation — URLs expire in 24h
- */
+export async function downloadBuffer(key, _bucket) {
+  const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  const bytes = await res.Body.transformToByteArray();
+  return Buffer.from(bytes);
+}
+
+export async function deleteFile(key, _bucket) {
+  try {
+    await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  } catch (err) {
+    if (err.name !== 'NoSuchKey') {
+      console.error(`Storage delete failed: ${err.message}`);
+    }
+  }
+}
+
 export async function downloadFromUrl(url) {
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
@@ -56,11 +63,8 @@ export async function downloadFromUrl(url) {
   return Buffer.from(response.data);
 }
 
-/**
- * Upload audio from a URL directly to storage (download + re-upload)
- */
 export async function downloadAndStore(sourceUrl, storagePath, bucket, contentType = 'audio/wav') {
   const buffer = await downloadFromUrl(sourceUrl);
-  const publicUrl = await uploadBuffer(buffer, storagePath, bucket, contentType);
-  return { publicUrl, buffer };
+  const url = await uploadBuffer(buffer, storagePath, bucket, contentType);
+  return { publicUrl: url, buffer };
 }

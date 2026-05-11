@@ -1,58 +1,71 @@
-import { createClient } from '@supabase/supabase-js';
+import pg from 'pg';
 import config from '../config/index.js';
 
-export const supabase = createClient(config.supabase.url, config.supabase.anonKey);
-
-export const supabaseAdmin = createClient(config.supabase.url, config.supabase.serviceKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
+const pool = new pg.Pool({
+  connectionString: config.database.url,
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
+
+export { pool };
+
+async function query(sql, params = []) {
+  const { rows } = await pool.query(sql, params);
+  return rows;
+}
+
+async function queryOne(sql, params = []) {
+  const rows = await query(sql, params);
+  return rows[0] ?? null;
+}
 
 // =====================================================
 // USER
 // =====================================================
 
 export async function getUserById(userId) {
-  const { data, error } = await supabaseAdmin
-    .from('user_profiles')
-    .select('*')
-    .eq('id', userId)
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  return queryOne('SELECT * FROM user_profiles WHERE id = $1', [userId]);
 }
 
-/**
- * Auto-create user profile if it doesn't exist (replaces DB trigger).
- * New users start with status 'pending' and must be approved by admin.
- */
+export async function getUserByEmail(email) {
+  return queryOne('SELECT * FROM user_profiles WHERE email = $1', [email]);
+}
+
 export async function ensureUserProfile(userId, email) {
   const displayName = email ? email.split('@')[0] : 'User';
-  const { data, error } = await supabaseAdmin
-    .from('user_profiles')
-    .upsert({
-      id: userId,
-      email,
-      display_name: displayName,
-      status: 'pending',
-    }, { onConflict: 'id', ignoreDuplicates: true })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  return queryOne(
+    `INSERT INTO user_profiles (id, email, display_name, status)
+     VALUES ($1, $2, $3, 'pending')
+     ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
+     RETURNING *`,
+    [userId, email, displayName]
+  );
+}
+
+export async function upsertUserProfile(userId, email, displayName) {
+  return queryOne(
+    `INSERT INTO user_profiles (id, email, display_name, status)
+     VALUES ($1, $2, $3, 'pending')
+     ON CONFLICT (email) DO UPDATE SET last_login_at = now()
+     RETURNING *`,
+    [userId, email, displayName || email.split('@')[0]]
+  );
 }
 
 export async function updateUserLastLogin(userId) {
-  await supabaseAdmin
-    .from('user_profiles')
-    .update({ last_login_at: new Date().toISOString() })
-    .eq('id', userId);
+  await query('UPDATE user_profiles SET last_login_at = now() WHERE id = $1', [userId]);
 }
 
 export async function incrementUserCharacters(userId, characters) {
-  await supabaseAdmin.rpc('increment_user_characters', {
-    p_user_id: userId,
-    p_characters: characters,
-  });
+  await query('SELECT increment_user_characters($1, $2)', [userId, characters]);
+}
+
+export async function updateUserProfile(userId, { display_name }) {
+  return queryOne(
+    'UPDATE user_profiles SET display_name = $1, updated_at = now() WHERE id = $2 RETURNING *',
+    [display_name, userId]
+  );
 }
 
 // =====================================================
@@ -60,68 +73,53 @@ export async function incrementUserCharacters(userId, characters) {
 // =====================================================
 
 export async function createClonedVoice(userId, data) {
-  const { data: voice, error } = await supabaseAdmin
-    .from('cloned_voices')
-    .insert({ user_id: userId, ...data })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return voice;
+  const cols = ['user_id', ...Object.keys(data)];
+  const vals = [userId, ...Object.values(data)];
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+  return queryOne(
+    `INSERT INTO cloned_voices (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+    vals
+  );
 }
 
 export async function getClonedVoicesByUser(userId) {
-  const { data, error } = await supabaseAdmin
-    .from('cloned_voices')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('status', 'active')
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
-  return data || [];
+  return query(
+    `SELECT * FROM cloned_voices WHERE user_id = $1 AND status = 'active' ORDER BY created_at DESC`,
+    [userId]
+  );
 }
 
 export async function getClonedVoiceById(voiceId, userId) {
-  const { data, error } = await supabaseAdmin
-    .from('cloned_voices')
-    .select('*')
-    .eq('id', voiceId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
+  return queryOne(
+    'SELECT * FROM cloned_voices WHERE id = $1 AND user_id = $2',
+    [voiceId, userId]
+  );
 }
 
 export async function updateClonedVoice(voiceId, userId, updates) {
-  const { data, error } = await supabaseAdmin
-    .from('cloned_voices')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', voiceId)
-    .eq('user_id', userId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  const entries = Object.entries({ ...updates, updated_at: new Date().toISOString() });
+  const sets = entries.map(([k], i) => `${k} = $${i + 1}`).join(', ');
+  const vals = entries.map(([, v]) => v);
+  return queryOne(
+    `UPDATE cloned_voices SET ${sets} WHERE id = $${vals.length + 1} AND user_id = $${vals.length + 2} RETURNING *`,
+    [...vals, voiceId, userId]
+  );
 }
 
 export async function deleteClonedVoice(voiceId, userId) {
-  const { error } = await supabaseAdmin
-    .from('cloned_voices')
-    .update({ status: 'deleted' })
-    .eq('id', voiceId)
-    .eq('user_id', userId);
-  if (error) throw new Error(error.message);
+  await query(
+    `UPDATE cloned_voices SET status = 'deleted' WHERE id = $1 AND user_id = $2`,
+    [voiceId, userId]
+  );
 }
 
 export async function incrementVoiceUsage(voiceQwenId) {
-  const { data } = await supabaseAdmin
-    .from('cloned_voices')
-    .select('times_used')
-    .eq('qwen_voice_id', voiceQwenId)
-    .maybeSingle();
-  await supabaseAdmin
-    .from('cloned_voices')
-    .update({ times_used: (data?.times_used || 0) + 1, last_used_at: new Date().toISOString() })
-    .eq('qwen_voice_id', voiceQwenId);
+  await query(
+    `UPDATE cloned_voices
+     SET times_used = COALESCE(times_used, 0) + 1, last_used_at = now()
+     WHERE qwen_voice_id = $1`,
+    [voiceQwenId]
+  );
 }
 
 // =====================================================
@@ -129,59 +127,53 @@ export async function incrementVoiceUsage(voiceQwenId) {
 // =====================================================
 
 export async function createTtsJob(userId, data) {
-  const { data: job, error } = await supabaseAdmin
-    .from('tts_jobs')
-    .insert({ user_id: userId, ...data })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return job;
+  const cols = ['user_id', ...Object.keys(data)];
+  const vals = [userId, ...Object.values(data)];
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+  return queryOne(
+    `INSERT INTO tts_jobs (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
+    vals
+  );
 }
 
 export async function updateTtsJob(jobId, updates) {
-  const { data, error } = await supabaseAdmin
-    .from('tts_jobs')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', jobId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  const entries = Object.entries({ ...updates, updated_at: new Date().toISOString() });
+  const sets = entries.map(([k], i) => `${k} = $${i + 1}`).join(', ');
+  const vals = entries.map(([, v]) => v);
+  return queryOne(
+    `UPDATE tts_jobs SET ${sets} WHERE id = $${vals.length + 1} RETURNING *`,
+    [...vals, jobId]
+  );
 }
 
 export async function getTtsJobById(jobId, userId) {
-  const { data, error } = await supabaseAdmin
-    .from('tts_jobs')
-    .select('*')
-    .eq('id', jobId)
-    .eq('user_id', userId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data;
+  return queryOne(
+    'SELECT * FROM tts_jobs WHERE id = $1 AND user_id = $2',
+    [jobId, userId]
+  );
 }
 
 export async function getTtsJobsByUser(userId, { limit = 20, offset = 0, status } = {}) {
-  let query = supabaseAdmin
-    .from('tts_jobs')
-    .select('*', { count: 'exact' })
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (status) query = query.eq('status', status);
-
-  const { data, error, count } = await query;
-  if (error) throw new Error(error.message);
-  return { jobs: data || [], total: count };
+  const countRow = await queryOne(
+    status
+      ? 'SELECT COUNT(*) as count FROM tts_jobs WHERE user_id = $1 AND status = $2'
+      : 'SELECT COUNT(*) as count FROM tts_jobs WHERE user_id = $1',
+    status ? [userId, status] : [userId]
+  );
+  const jobs = status
+    ? await query(
+        'SELECT * FROM tts_jobs WHERE user_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4',
+        [userId, status, limit, offset]
+      )
+    : await query(
+        'SELECT * FROM tts_jobs WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3',
+        [userId, limit, offset]
+      );
+  return { jobs, total: parseInt(countRow?.count || 0, 10) };
 }
 
 export async function deleteTtsJob(jobId, userId) {
-  const { error } = await supabaseAdmin
-    .from('tts_jobs')
-    .delete()
-    .eq('id', jobId)
-    .eq('user_id', userId);
-  if (error) throw new Error(error.message);
+  await query('DELETE FROM tts_jobs WHERE id = $1 AND user_id = $2', [jobId, userId]);
 }
 
 // =====================================================
@@ -189,24 +181,13 @@ export async function deleteTtsJob(jobId, userId) {
 // =====================================================
 
 export async function logUsage(userId, data) {
-  await supabaseAdmin
-    .from('usage_history')
-    .insert({ user_id: userId, ...data });
-}
-
-// =====================================================
-// USER PROFILE MANAGEMENT
-// =====================================================
-
-export async function updateUserProfile(userId, { display_name }) {
-  const { data, error } = await supabaseAdmin
-    .from('user_profiles')
-    .update({ display_name, updated_at: new Date().toISOString() })
-    .eq('id', userId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  const cols = ['user_id', ...Object.keys(data)];
+  const vals = [userId, ...Object.values(data)];
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
+  await query(
+    `INSERT INTO usage_history (${cols.join(', ')}) VALUES (${placeholders})`,
+    vals
+  ).catch(() => {}); // Non-critical, don't throw
 }
 
 // =====================================================
@@ -214,62 +195,56 @@ export async function updateUserProfile(userId, { display_name }) {
 // =====================================================
 
 export async function getAllUsers() {
-  const { data, error } = await supabaseAdmin
-    .from('user_profiles')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) throw new Error(error.message);
-  return data || [];
+  return query('SELECT * FROM user_profiles ORDER BY created_at DESC');
 }
 
 export async function adminGetAllJobs({ limit = 50, offset = 0, userId = null } = {}) {
-  let query = supabaseAdmin
-    .from('tts_jobs')
-    .select('*, user_profiles(email, display_name)', { count: 'exact' })
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  if (userId) query = query.eq('user_id', userId);
-
-  const { data, error, count } = await query;
-  if (error) throw new Error(error.message);
-  return { jobs: data || [], total: count };
+  const countRow = await queryOne(
+    userId
+      ? 'SELECT COUNT(*) as count FROM tts_jobs WHERE user_id = $1'
+      : 'SELECT COUNT(*) as count FROM tts_jobs',
+    userId ? [userId] : []
+  );
+  const jobs = await query(
+    `SELECT j.*, up.email, up.display_name
+     FROM tts_jobs j
+     LEFT JOIN user_profiles up ON up.id = j.user_id
+     ${userId ? 'WHERE j.user_id = $3' : ''}
+     ORDER BY j.created_at DESC LIMIT $1 OFFSET $2`,
+    userId ? [limit, offset, userId] : [limit, offset]
+  );
+  return { jobs, total: parseInt(countRow?.count || 0, 10) };
 }
 
 export async function adminGetStats() {
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-
   const [
-    { count: totalUsers },
-    { count: activeUsers7d },
-    { count: totalJobs },
-    { count: completedJobs },
-    { count: failedJobs },
-    { data: charData },
+    totalUsersRow, activeUsersRow, totalJobsRow,
+    completedJobsRow, failedJobsRow, charRow,
   ] = await Promise.all([
-    supabaseAdmin.from('user_profiles').select('*', { count: 'exact', head: true }),
-    supabaseAdmin.from('user_profiles').select('*', { count: 'exact', head: true }).gte('last_login_at', sevenDaysAgo),
-    supabaseAdmin.from('tts_jobs').select('*', { count: 'exact', head: true }),
-    supabaseAdmin.from('tts_jobs').select('*', { count: 'exact', head: true }).eq('status', 'completed'),
-    supabaseAdmin.from('tts_jobs').select('*', { count: 'exact', head: true }).eq('status', 'failed'),
-    supabaseAdmin.from('user_profiles').select('total_characters_used'),
+    queryOne('SELECT COUNT(*) as count FROM user_profiles'),
+    queryOne('SELECT COUNT(*) as count FROM user_profiles WHERE last_login_at >= $1', [sevenDaysAgo]),
+    queryOne('SELECT COUNT(*) as count FROM tts_jobs'),
+    queryOne("SELECT COUNT(*) as count FROM tts_jobs WHERE status = 'completed'"),
+    queryOne("SELECT COUNT(*) as count FROM tts_jobs WHERE status = 'failed'"),
+    queryOne('SELECT SUM(total_characters_used) as total FROM user_profiles'),
   ]);
-
-  const totalCharactersUsed = (charData || []).reduce((s, u) => s + (u.total_characters_used || 0), 0);
-
   return {
-    totalUsers: totalUsers || 0,
-    activeUsers7d: activeUsers7d || 0,
-    totalJobs: totalJobs || 0,
-    completedJobs: completedJobs || 0,
-    failedJobs: failedJobs || 0,
-    totalCharactersUsed,
+    totalUsers: parseInt(totalUsersRow?.count || 0, 10),
+    activeUsers7d: parseInt(activeUsersRow?.count || 0, 10),
+    totalJobs: parseInt(totalJobsRow?.count || 0, 10),
+    completedJobs: parseInt(completedJobsRow?.count || 0, 10),
+    failedJobs: parseInt(failedJobsRow?.count || 0, 10),
+    totalCharactersUsed: parseInt(charRow?.total || 0, 10),
   };
 }
 
 export async function adminDeleteUser(userId) {
-  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
-  if (error) throw new Error(error.message);
+  // Without Supabase Auth, we suspend the user profile instead of hard-delete
+  await query(
+    `UPDATE user_profiles SET status = 'suspended', updated_at = now() WHERE id = $1`,
+    [userId]
+  );
 }
 
 export async function adminUpdateUser(userId, updates) {
@@ -278,14 +253,13 @@ export async function adminUpdateUser(userId, updates) {
     if (updates[k] !== undefined) allowed[k] = updates[k];
   });
   allowed.updated_at = new Date().toISOString();
-  const { data, error } = await supabaseAdmin
-    .from('user_profiles')
-    .update(allowed)
-    .eq('id', userId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  const entries = Object.entries(allowed);
+  const sets = entries.map(([k], i) => `${k} = $${i + 1}`).join(', ');
+  const vals = entries.map(([, v]) => v);
+  return queryOne(
+    `UPDATE user_profiles SET ${sets} WHERE id = $${vals.length + 1} RETURNING *`,
+    [...vals, userId]
+  );
 }
 
 // =====================================================
@@ -293,35 +267,21 @@ export async function adminUpdateUser(userId, updates) {
 // =====================================================
 
 export async function getAppSettings() {
-  const { data, error } = await supabaseAdmin
-    .from('app_settings')
-    .select('*')
-    .order('key');
-  if (error) throw new Error(error.message);
-  return data || [];
+  return query('SELECT * FROM app_settings ORDER BY key');
 }
 
 export async function getAppSetting(key) {
-  const { data, error } = await supabaseAdmin
-    .from('app_settings')
-    .select('value')
-    .eq('key', key)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  return data?.value || null;
+  const row = await queryOne('SELECT value FROM app_settings WHERE key = $1', [key]);
+  return row?.value ?? null;
 }
 
 export async function upsertAppSetting(key, value, description) {
-  const { data, error } = await supabaseAdmin
-    .from('app_settings')
-    .upsert({
-      key,
-      value,
-      description: description || undefined,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'key' })
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data;
+  return queryOne(
+    `INSERT INTO app_settings (key, value, description, updated_at)
+     VALUES ($1, $2, $3, now())
+     ON CONFLICT (key) DO UPDATE
+       SET value = EXCLUDED.value, updated_at = now()
+     RETURNING *`,
+    [key, value, description || null]
+  );
 }

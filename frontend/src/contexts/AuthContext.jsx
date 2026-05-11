@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { supabase } from '../services/supabase';
+import { authClient } from '../services/auth';
 import { userApi } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -22,22 +22,13 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let mounted = true;
 
-    const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user && mounted) {
-        setUser(session.user);
-        await fetchProfile(session.access_token);
-      }
-      if (mounted) setLoading(false);
-    };
-
-    init();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = authClient.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
-      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        setUser(session.user);
-        await fetchProfile(session.access_token);
+      if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'INITIAL_SESSION') {
+        if (session?.user) {
+          setUser(session.user);
+          await fetchProfile(session.access_token);
+        }
         setLoading(false);
       } else if (event === 'SIGNED_OUT') {
         setUser(null);
@@ -51,7 +42,7 @@ export function AuthProvider({ children }) {
   }, [fetchProfile]);
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await authClient.auth.signOut();
   };
 
   const refreshProfile = useCallback(async () => {
@@ -59,13 +50,8 @@ export function AuthProvider({ children }) {
     if (token) await fetchProfile(token);
   }, [fetchProfile]);
 
-  const changePassword = async (newPassword) => {
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    if (error) throw error;
-  };
-
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile, changePassword }}>
+    <AuthContext.Provider value={{ user, profile, loading, signOut, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

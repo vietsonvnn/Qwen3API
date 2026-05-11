@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import config from './config/index.js';
+import authRoutes from './routes/auth.js';
 import ttsRoutes from './routes/tts.js';
 import voiceRoutes from './routes/voice.js';
 import userRoutes from './routes/user.js';
@@ -20,6 +21,7 @@ app.use('*', cors({
 }));
 
 // Routes
+app.route('/api/auth', authRoutes);
 app.route('/api/tts', ttsRoutes);
 app.route('/api/voices', voiceRoutes);
 app.route('/api/user', userRoutes);
