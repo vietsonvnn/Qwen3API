@@ -72,7 +72,12 @@ router.post('/clone', async (c) => {
   }
 
   // 2. Store source audio for reference
-  const sourceKey = `sources/${userId}/${uuidv4()}_${audioFile.name}`;
+  // Strip diacritics + non-URL-safe chars so the R2 public URL doesn't need encoding.
+  const safeName = audioFile.name
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')   // strip Vietnamese tone marks
+    .replace(/[^a-zA-Z0-9._-]+/g, '_')                  // collapse spaces/parens/etc
+    .replace(/^_+|_+$/g, '');
+  const sourceKey = `sources/${userId}/${uuidv4()}_${safeName}`;
   let sourceUrl = null;
   try {
     sourceUrl = await uploadBuffer(audioBuffer, sourceKey, null, audioFile.type);

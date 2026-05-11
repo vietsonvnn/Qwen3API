@@ -20,6 +20,12 @@ async function queryOne(sql, params = []) {
   return rows[0] ?? null;
 }
 
+// node-postgres serialises plain JS arrays as Postgres array literals (e.g. text[]),
+// which corrupts inserts into jsonb columns. Stringify so the value travels as JSON text.
+function encodeJsonb(v) {
+  return v === null || v === undefined ? v : JSON.stringify(v);
+}
+
 // =====================================================
 // USER
 // =====================================================
@@ -127,8 +133,10 @@ export async function incrementVoiceUsage(voiceQwenId) {
 // =====================================================
 
 export async function createTtsJob(userId, data) {
-  const cols = ['user_id', ...Object.keys(data)];
-  const vals = [userId, ...Object.values(data)];
+  const norm = { ...data };
+  if ('segments' in norm) norm.segments = encodeJsonb(norm.segments);
+  const cols = ['user_id', ...Object.keys(norm)];
+  const vals = [userId, ...Object.values(norm)];
   const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   return queryOne(
     `INSERT INTO tts_jobs (${cols.join(', ')}) VALUES (${placeholders}) RETURNING *`,
@@ -137,7 +145,9 @@ export async function createTtsJob(userId, data) {
 }
 
 export async function updateTtsJob(jobId, updates) {
-  const entries = Object.entries({ ...updates, updated_at: new Date().toISOString() });
+  const norm = { ...updates, updated_at: new Date().toISOString() };
+  if ('segments' in norm) norm.segments = encodeJsonb(norm.segments);
+  const entries = Object.entries(norm);
   const sets = entries.map(([k], i) => `${k} = $${i + 1}`).join(', ');
   const vals = entries.map(([, v]) => v);
   return queryOne(
@@ -181,8 +191,10 @@ export async function deleteTtsJob(jobId, userId) {
 // =====================================================
 
 export async function logUsage(userId, data) {
-  const cols = ['user_id', ...Object.keys(data)];
-  const vals = [userId, ...Object.values(data)];
+  const norm = { ...data };
+  if ('metadata' in norm) norm.metadata = encodeJsonb(norm.metadata);
+  const cols = ['user_id', ...Object.keys(norm)];
+  const vals = [userId, ...Object.values(norm)];
   const placeholders = vals.map((_, i) => `$${i + 1}`).join(', ');
   await query(
     `INSERT INTO usage_history (${cols.join(', ')}) VALUES (${placeholders})`,
@@ -278,10 +290,10 @@ export async function getAppSetting(key) {
 export async function upsertAppSetting(key, value, description) {
   return queryOne(
     `INSERT INTO app_settings (key, value, description, updated_at)
-     VALUES ($1, $2, $3, now())
+     VALUES ($1, $2::jsonb, $3, now())
      ON CONFLICT (key) DO UPDATE
        SET value = EXCLUDED.value, updated_at = now()
      RETURNING *`,
-    [key, value, description || null]
+    [key, encodeJsonb(value), description || null]
   );
 }
