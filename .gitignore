@@ -14,8 +14,6 @@ build/
 .env.*.local
 .env.production
 .env.migrate
-scripts/.env*
-supabase-dump.sql
 
 # Logs
 *.log
