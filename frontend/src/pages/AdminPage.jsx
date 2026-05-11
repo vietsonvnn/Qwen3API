@@ -546,10 +546,10 @@ function AllJobsTab() {
                 <tr key={job.id} className="hover:bg-dark-800/40 transition-colors">
                   <td className="py-2.5 pr-4">
                     <p className="text-gray-300 truncate max-w-[140px]">
-                      {job.user_profiles?.display_name || '—'}
+                      {job.display_name || '—'}
                     </p>
                     <p className="text-xs text-gray-600 truncate max-w-[140px]">
-                      {job.user_profiles?.email}
+                      {job.email}
                     </p>
                   </td>
                   <td className="py-2.5 pr-4">
