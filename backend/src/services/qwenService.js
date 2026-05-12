@@ -129,20 +129,29 @@ const VOICE_CLONE_TTS_MODEL = 'qwen3-tts-vc-2026-01-22';
  * Retry wrapper for rate-limited API calls.
  * Retries up to maxRetries times on 429 or "rate limit" errors with exponential backoff.
  */
+// Retry on rate limits (HTTP 429) AND transient network failures (timeouts, resets,
+// aborted streams, 5xx). The Aliyun OSS download in particular often aborts mid-stream
+// from CN — one flaky request was killing long parallel-batched TTS jobs.
+function isTransientError(err) {
+  if (err.response?.status === 429) return true;
+  if (err.response?.status >= 500 && err.response?.status < 600) return true;
+  const code = err.code;
+  if (code === 'ECONNABORTED' || code === 'ECONNRESET' || code === 'ETIMEDOUT'
+      || code === 'EAI_AGAIN' || code === 'ENETUNREACH' || code === 'EPIPE') return true;
+  const msg = (err.message || '').toLowerCase();
+  return msg.includes('rate limit') || msg.includes('throttl')
+      || msg.includes('timeout') || msg.includes('stream has been aborted')
+      || msg.includes('socket hang up') || msg.includes('network');
+}
+
 async function withRetry(fn, maxRetries = 4, baseDelayMs = 2000) {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      const isRateLimit =
-        err.response?.status === 429 ||
-        err.message?.toLowerCase().includes('rate limit') ||
-        err.message?.toLowerCase().includes('throttl');
-
-      if (!isRateLimit || attempt === maxRetries) throw err;
-
-      const delay = baseDelayMs * Math.pow(2, attempt); // 2s, 4s, 8s, 16s
-      console.warn(`Rate limit hit, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
+      if (!isTransientError(err) || attempt === maxRetries) throw err;
+      const delay = baseDelayMs * Math.pow(2, attempt); // 2s, 4s, 8s, 16s, 32s
+      console.warn(`Transient error "${err.message}", retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -175,7 +184,7 @@ export async function synthesizeSingle(text, voiceId, options = {}) {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
-          timeout: 60000,
+          timeout: 120000,
         }
       )
     );
@@ -189,11 +198,11 @@ export async function synthesizeSingle(text, voiceId, options = {}) {
     throw new Error(`Qwen3 TTS failed: ${JSON.stringify(response.data)}`);
   }
 
-  // Download WAV immediately — URLs expire in 24h
-  const wavResponse = await axios.get(audio.url, {
-    responseType: 'arraybuffer',
-    timeout: 60000,
-  });
+  // Download WAV immediately — URLs expire in 24h. Aliyun OSS streams from CN
+  // occasionally abort mid-flight, so retry transient failures.
+  const wavResponse = await withRetry(() =>
+    axios.get(audio.url, { responseType: 'arraybuffer', timeout: 120000 })
+  );
 
   const wavBuffer = Buffer.from(wavResponse.data);
   // Use ffprobe for reliable duration — WAV header parsing was giving wrong values
@@ -350,16 +359,18 @@ export async function createVoiceprint(audioBuffer, fileName, options = {}) {
 
   let response;
   try {
-    response = await axios.post(
-      `${baseUrl}${config.qwen.cloneEndpoint}`,
-      payload,
-      {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 120000,
-      }
+    response = await withRetry(() =>
+      axios.post(
+        `${baseUrl}${config.qwen.cloneEndpoint}`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 120000,
+        }
+      )
     );
   } catch (err) {
     // Extract actual error message from Qwen3 API response body
